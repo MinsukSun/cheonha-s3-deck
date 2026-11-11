@@ -3,7 +3,16 @@
   {
    "id": "g0og97xe",
    "name": "덕구",
-   "generals": {},
+   "generals": {
+    "조운": {
+     "owned": true,
+     "stars": 0
+    },
+    "조조": {
+     "owned": true,
+     "stars": 0
+    }
+   },
    "tactics": {},
    "lineup": [],
    "squads": 5
@@ -47,5 +56,7 @@
     "kind": "roster"
    }
   ]
- }
+ },
+ "rev": 1,
+ "savedAt": "2026-11-11T12:29:10.253Z"
 }
