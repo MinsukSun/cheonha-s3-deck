@@ -70,6 +70,26 @@ const Cloud = (() => {
   let cfg = Object.assign({}, DEFAULT_CLOUD, load(LS_CLOUD, {}));
   let meta = load(LS_CLOUD_META, { sha: null, base: null, at: null, rev: 0 });   // base: 마지막으로 서버와 맞춘 공유 데이터, rev: 서버 저장 번호
   let status = 'idle', detail = '', timer = null, busy = false, again = false;
+  const AUTH_PATH = 'auth.json';
+  let authBlob, authSha;   // undefined = 아직 안 읽음, null = 없음
+  // AES-GCM 256 + PBKDF2-SHA256 (31만 회). 비밀번호가 약하면 공개된 암호문을 풀어볼 수 있으니 8자 이상을 씁니다.
+  const bytesB64 = u8 => btoa(String.fromCharCode(...u8));
+  const b64Bytes = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  async function pwKey(pw, salt, iter) {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+  async function encryptSecret(text, pw) {
+    const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12)), iter = 310000;
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await pwKey(pw, salt, iter), new TextEncoder().encode(text)));
+    return { v: 1, alg: 'AES-GCM/PBKDF2-SHA256', iter, salt: bytesB64(salt), iv: bytesB64(iv), ct: bytesB64(ct), at: new Date().toISOString() };
+  }
+  async function decryptSecret(blob, pw) {
+    try {
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64Bytes(blob.iv) }, await pwKey(pw, b64Bytes(blob.salt), blob.iter || 310000), b64Bytes(blob.ct));
+      return new TextDecoder().decode(pt);
+    } catch { return null; }
+  }
   // 깊은 복사본: 저장 중에 화면에서 바꾼 내용이 '저장됨'으로 섞이지 않게 합니다.
   const shared = s => JSON.parse(JSON.stringify({ accounts: s.accounts, customDecks: s.customDecks || [], sheet: s.sheet }));
   const body = d => { const { rev, savedAt, ...rest } = d || {}; return rest; };
@@ -214,6 +234,34 @@ const Cloud = (() => {
   window.addEventListener('focus', () => { if (!cfg.enabled || busy) return; if (dirty() && canWrite()) schedule(); else if (!dirty()) pull(); });
   return {
     pull, push, onLocalChange, paintStatus,
+    // ── 공유 비밀번호: 토큰을 비밀번호로 암호화해 저장소(data 브랜치 auth.json)에 두고, 어느 브라우저든 비밀번호로 풀어 씁니다.
+    get authExists() { return authBlob === undefined ? null : !!authBlob; },
+    async fetchAuth() {
+      if (authBlob !== undefined) return authBlob;
+      try {
+        const r = await fetch(api(`/contents/${AUTH_PATH}?ref=${encodeURIComponent(cfg.branch)}`), { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+        if (r.status === 404) authBlob = null;
+        else if (r.ok) { const j = await r.json(); authBlob = JSON.parse(b64d(j.content)); authSha = j.sha; }
+        else { const raw = await fetch(`https://raw.githubusercontent.com/${cfg.repo}/${cfg.branch}/${AUTH_PATH}?t=${Date.now()}`, { cache: 'no-store' }); authBlob = raw.ok ? await raw.json() : null; }
+      } catch { authBlob = null; }
+      return authBlob;
+    },
+    async unlockWith(pw) {
+      const blob = await this.fetchAuth(); if (!blob || !pw) return false;
+      const tok = await decryptSecret(blob, pw); if (!tok) return false;
+      cfg = Object.assign({}, cfg, { token: tok, enabled: true }); saveCfg(); setStatus(dirty() ? 'pending' : 'ok');
+      return true;
+    },
+    async publishAuth(pw) {
+      if (!canWrite()) throw new Error('먼저 이 브라우저에 토큰을 연결하세요');
+      const blob = await encryptSecret(cfg.token, pw);
+      if (!meta.sha) await ensureBranch();
+      const cur = await fetch(api(`/contents/${AUTH_PATH}?ref=${encodeURIComponent(cfg.branch)}`), { headers: hdr(), cache: 'no-store' });
+      const sha = cur.ok ? (await cur.json()).sha : undefined;
+      const r = await fetch(api(`/contents/${AUTH_PATH}`), { method: 'PUT', headers: hdr(), body: sj({ message: '공유 비밀번호 설정', content: b64e(JSON.stringify(blob, null, 1)), branch: cfg.branch, ...(sha ? { sha } : {}) }) });
+      if (!r.ok) throw new Error(`올리기 실패 (${r.status})`);
+      authBlob = blob;
+    },
     get cfg() { return cfg; }, get status() { return status; },
     setCfg(next) { cfg = Object.assign({}, cfg, next); saveCfg(); meta = { sha: null, base: null, at: null, rev: 0 }; saveMeta(); },
     uploadLocal: async () => { const r = await fetchRemote().catch(() => ({})); meta = { sha: r.sha || null, base: { accounts: [] }, at: meta.at, rev: Math.max(meta.rev || 0, r.data?.rev || 0) }; saveMeta(); return push(); },
@@ -993,7 +1041,16 @@ function cloudSection() {
     <button class="btn" data-act="cloudAdopt">공유 내용으로 바꾸기</button>
     <button class="btn" data-act="cloudUpload">이 브라우저 내용 올리기</button>
   </div>
-  <p class="small muted" id="cloudMsg"></p>`;
+  <p class="small muted" id="cloudMsg"></p>
+  <div class="card" style="margin-top:10px">
+    <b>공유 비밀번호</b> <span class="small muted">— 토큰을 기기마다 넣지 않고, 비밀번호만으로 어느 브라우저에서든 저장할 수 있게 합니다.</span>
+    ${c.token ? `<p class="small muted">이 브라우저의 토큰을 비밀번호로 암호화해 저장소(<code>${esc(c.branch)}/auth.json</code>)에 올립니다. 다른 브라우저에서는 입장 화면이나 아래 칸에 비밀번호를 넣으면 됩니다. 암호문은 공개되므로 <b>8자 이상, 다른 곳에 안 쓰는 비밀번호</b>를 쓰세요. 비밀번호를 바꾸려면 다시 올리면 됩니다.</p>
+    <div class="form-grid"><div class="fld"><label>공유 비밀번호</label><input type="password" id="cPw1" autocomplete="new-password"></div>
+    <div class="fld"><label>한 번 더</label><input type="password" id="cPw2" autocomplete="new-password"></div>
+    <div class="fld"><label>&nbsp;</label><button class="btn primary" data-act="cloudLock">비밀번호로 잠가 올리기</button></div></div>`
+    : `<p class="small muted">공유 비밀번호를 알면 토큰 없이도 이 브라우저에서 저장할 수 있습니다.</p>
+    <div class="bar"><input type="password" id="cPwIn" placeholder="공유 비밀번호" autocomplete="current-password"><button class="btn primary" data-act="cloudUnlock">저장 권한 받기</button></div>`}
+  </div>`;
 }
 function viewData() {
   const sh = state.sheet;
@@ -1167,6 +1224,20 @@ document.addEventListener('click', e => {
       toast('공유 설정을 저장했습니다'); render(); Cloud.pull(); return;
     }
     case 'cloudPull': Cloud.pull(); return;
+    case 'cloudLock': {
+      const p1 = $('#cPw1').value, p2 = $('#cPw2').value;
+      if (p1.length < 8) return toast('비밀번호는 8자 이상으로 하세요');
+      if (p1 !== p2) return toast('두 비밀번호가 다릅니다');
+      if (p1 === '1234') return toast('인증 키와 다른 비밀번호를 쓰세요');
+      toast('암호화해서 올리는 중…');
+      Cloud.publishAuth(p1).then(() => toast('공유 비밀번호를 설정했습니다. 다른 브라우저에서는 이 비밀번호로 들어오세요.'), e => toast('실패: ' + e.message));
+      return;
+    }
+    case 'cloudUnlock': {
+      const v = $('#cPwIn').value; if (!v) return;
+      Cloud.unlockWith(v).then(ok => { if (ok) { toast('저장 권한을 받았습니다'); render(); Cloud.pull(); } else toast(Cloud.authExists === false ? '아직 공유 비밀번호가 설정되지 않았습니다' : '비밀번호가 맞지 않습니다'); });
+      return;
+    }
     case 'cloudAdopt': if (!confirm('이 브라우저의 보유·편성·내 덱을 공유 저장소의 내용으로 바꿉니다. 계속할까요?')) return; Cloud.adoptRemote(); return;
     case 'cloudUpload': if (!confirm('공유 저장소의 내용을 이 브라우저의 보유·편성·내 덱으로 덮어씁니다. 다른 사람이 입력한 내용도 바뀝니다. 계속할까요?')) return; Cloud.uploadLocal(); return;
     case 'export': {
@@ -1259,24 +1330,34 @@ function showGate(onOk) {
   g.className = 'gate';
   g.innerHTML = `<form class="gate-box" autocomplete="off">
     <strong>천하결전 덱 관리</strong>
-    <p class="small muted">접속하려면 인증 키를 입력하세요.</p>
-    <input type="password" inputmode="numeric" id="gateKey" placeholder="인증 키" aria-label="인증 키">
+    <p class="small muted">인증 키(보기)나 공유 비밀번호(보기+저장)를 입력하세요.</p>
+    <input type="password" id="gateKey" placeholder="인증 키 또는 공유 비밀번호" aria-label="인증 키 또는 공유 비밀번호">
     <label class="small"><input type="checkbox" id="gateRemember" checked> 이 브라우저에서 기억하기</label>
     <button class="btn primary" type="submit">들어가기</button>
     <div class="small miss" id="gateMsg" aria-live="polite"></div>
   </form>`;
   document.body.appendChild(g);
-  const inp = g.querySelector('#gateKey'); inp.focus();
-  g.querySelector('form').addEventListener('submit', e => {
-    e.preventDefault();
-    if (authHash(inp.value) !== AUTH_HASH) { g.querySelector('#gateMsg').textContent = '인증 키가 맞지 않습니다.'; inp.select(); return; }
+  const inp = g.querySelector('#gateKey'), msg = g.querySelector('#gateMsg'), btn = g.querySelector('button'); inp.focus();
+  Cloud.fetchAuth();   // 미리 받아두기
+  const enter = () => {
     try { if (g.querySelector('#gateRemember').checked) localStorage.setItem(LS_AUTH, AUTH_HASH); } catch {}
     g.remove(); document.body.classList.remove('locked'); onOk();
+  };
+  g.querySelector('form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const v = inp.value;
+    if (authHash(v) === AUTH_HASH) { if (!Cloud.cfg.token) toast('보기 전용으로 열었습니다. 저장하려면 공유 비밀번호로 들어오세요.'); return enter(); }
+    btn.disabled = true; msg.textContent = '확인 중…';
+    const ok = await Cloud.unlockWith(v);
+    btn.disabled = false;
+    if (ok) { toast('공유 비밀번호 확인: 이 브라우저에서 저장할 수 있습니다'); return enter(); }
+    msg.textContent = Cloud.authExists === false ? '인증 키가 맞지 않습니다.' : '인증 키나 공유 비밀번호가 맞지 않습니다.';
+    inp.select();
   });
 }
 
 // ───────────────────────── 시작 ─────────────────────────
 function start() { start._done = true; buildData(); render(); Cloud.paintStatus(); Cloud.pull(); }
 if (isAuthed()) start(); else showGate(start);
-window.__tk3 = { get DECKS() { return DECKS; }, get COEXIST() { return COEXIST; }, G, T, check, solve, state: () => state };
+window.__tk3 = { get DECKS() { return DECKS; }, get COEXIST() { return COEXIST; }, G, T, check, solve, Cloud, state: () => state };
 })();
