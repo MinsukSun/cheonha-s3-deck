@@ -648,6 +648,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "동탁": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -686,6 +691,6 @@
    }
   ]
  },
- "rev": 168,
- "savedAt": "2026-11-11T14:09:14.950Z"
+ "rev": 169,
+ "savedAt": "2026-11-11T14:09:18.398Z"
 }
