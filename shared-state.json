@@ -578,6 +578,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "마운록": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -616,6 +621,6 @@
    }
   ]
  },
- "rev": 155,
- "savedAt": "2026-11-11T14:08:24.248Z"
+ "rev": 156,
+ "savedAt": "2026-11-11T14:08:27.345Z"
 }
