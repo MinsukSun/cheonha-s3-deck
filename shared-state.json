@@ -1,0 +1,51 @@
+{
+ "accounts": [
+  {
+   "id": "g0og97xe",
+   "name": "덕구",
+   "generals": {},
+   "tactics": {},
+   "lineup": [],
+   "squads": 5
+  },
+  {
+   "id": "83vcu2sn",
+   "name": "부계정",
+   "generals": {},
+   "tactics": {},
+   "lineup": [],
+   "squads": 5
+  }
+ ],
+ "customDecks": [],
+ "sheet": {
+  "id": "17NtAf-aULDH-RtGPlWHHTGXJdg6R3yPg87uIo-F75_I",
+  "tabs": [
+   {
+    "name": "시즌3 티어덱",
+    "gid": "1443176189",
+    "kind": "tier"
+   },
+   {
+    "name": "시즌3 변칙, 계열덱",
+    "gid": "1922923785",
+    "kind": "variant"
+   },
+   {
+    "name": "시즌3 공존덱",
+    "gid": "474450804",
+    "kind": "coexist"
+   },
+   {
+    "name": "시즌3 공존덱(2)",
+    "gid": "841351688",
+    "kind": "coexist"
+   },
+   {
+    "name": "무장 도감",
+    "gid": "1134089693",
+    "kind": "roster"
+   }
+  ]
+ }
+}
