@@ -193,6 +193,36 @@
      "owned": true,
      "stars": 1,
      "grade": 0
+    },
+    "공손찬": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
+    },
+    "문추": {
+     "owned": true,
+     "stars": 2,
+     "grade": 0
+    },
+    "방덕": {
+     "owned": true,
+     "stars": 2,
+     "grade": 0
+    },
+    "안량": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
+    },
+    "화웅": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "화타": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -239,6 +269,6 @@
    }
   ]
  },
- "rev": 17,
- "savedAt": "2026-11-11T13:37:02.042Z"
+ "rev": 18,
+ "savedAt": "2026-11-11T13:37:08.044Z"
 }
