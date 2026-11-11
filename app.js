@@ -44,7 +44,7 @@ function normalizeAccounts() {
   if (!(state.active < state.accounts.length)) state.active = 0;
 }
 normalizeAccounts();
-state.ui = Object.assign({ tab: 'decks', src: 'main', status: 'all', q: '', ownTab: 'generals', ownMode: 'own', ownQ: '', ownUsedOnly: true }, state.ui || {});
+state.ui = Object.assign({ tab: 'decks', src: 'main', status: 'all', q: '', ownTab: 'generals', ownMode: 'own', ownQ: '', ownUsedOnly: true, ownSort: 'name' }, state.ui || {});
 state.sheet = state.sheet || DEFAULT_SHEET;
 state.customDecks = state.customDecks || [];
 // 저장된 값이나 불러온 백업에 최대보다 큰 값이 있으면 최대로 맞춥니다.
@@ -443,6 +443,12 @@ function buildData() {
     s.tactics.forEach(t => t.opts.forEach(k => T.get(k).used++));
   }
   finalizeNames(G); finalizeNames(T);
+  // 전법 유형표: 유형·특성·시즌을 붙이고, 덱에 안 쓰이는 전법도 보유 목록에 올립니다.
+  for (const [n, ty, tr, se] of window.TACTIC_TYPES || []) {
+    const k = key(n), AL = window.TACTIC_ALIASES || {};
+    const e = T.get(AL[k] || k) || reg(T, n);
+    Object.assign(e, { ttype: ty, trait: tr, tseason: se, name: n });   // 표기는 유형표의 공식 이름(띄어쓰기 포함)으로 통일
+  }
   decks.forEach(extractStarReq);
   // 같은 무장 3명 조합인데 설명에 돌파 조건이 없는 덱은, 다른 탭의 같은 조합 덱에 적힌 조건 중 가장 낮은 값을 따릅니다.
   const sig = d => d.slots.map(s => (s.gen ? s.gen.opts[0] : '')).sort().join('+');
@@ -674,26 +680,38 @@ function viewOwn() {
     <textarea rows="3" id="bulkIn"></textarea>
     <div class="bar" style="margin-top:6px"><button class="btn primary" data-act="bulkApply">적용</button><span class="small muted" id="bulkMsg"></span></div>
   </details>`;
+  const sortBar = `<div class="bar"><span class="small muted">정렬</span><div class="seg">${[['name', '가나다순'], ['used', '사용 덱 수']].map(([v, l]) => `<button data-act="set" data-k="ownSort" data-v="${v}" class="${u.ownSort === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
+  const sorter = u.ownSort === 'used' ? ((x, y) => y.used - x.used || byKoName(x, y)) : byKoName;
+  const section = (label, items, isOwned, chip) => items.length
+    ? `<div class="section-t">${label} (보유 ${items.filter(isOwned).length}/${items.length})</div><div class="chips">${items.sort(sorter).map(chip).join('')}</div>` : '';
   if (u.ownTab === 'generals') {
     let gens = [...G.values()].filter(e => (e.season || 0) <= MAX_SEASON);
     if (u.ownUsedOnly) gens = gens.filter(e => e.used > 0 || ownsG(a, e.key));
     if (q) gens = gens.filter(e => e.key.includes(q));
-    gens.sort(byKoName);
-    const owned = gens.filter(e => ownsG(a, e.key)).length;
-    const parts = [`<div class="section-t">무장 가나다순 (보유 ${owned}/${gens.length})</div><div class="chips">${gens.map(e => {
-        const g = a.generals[e.key] || {};
-        const tip = [e.season ? `시즌${e.season}` : '', e.skill, e.type, e.cat].filter(Boolean).join(' · ') + (e.desc ? '\n' + e.desc : '');
-        return `<button class="chip ${g.owned ? 'on' : ''} ${e.used ? '' : 'dim'}" data-act="gen" data-k="${esc(e.key)}" title="${esc(tip)}">${esc(e.name)}${g.owned && (g.stars || g.grade) ? `<span class="st">${reqText({ s: g.stars || 0, p: g.grade || 0 })}</span>` : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
-      }).join('')}</div>`];
-    return head + `<p class="small muted">칩을 누르면 보유/해제됩니다. 무장은 가나다순이고, 오른쪽 작은 숫자는 그 무장이 쓰이는 덱 수입니다. 돌파 수는 <b>탭=돌파+1</b>, 승품은 <b>탭=품+1</b>을 고른 뒤 누르면 하나씩 올라갑니다. 돌파는 최대 ${MAX_STARS}돌, 승품은 최대 ${MAX_GRADE}품이고, 최대 다음은 0으로 돌아갑니다. 칩에 마우스를 올리면 고유 전법이 보입니다.</p>` + (parts.join('') || '<div class="empty">표시할 무장이 없습니다.</div>');
+    const chip = e => {
+      const g = a.generals[e.key] || {};
+      const tip = [e.season ? `시즌${e.season}` : '', e.skill, e.type, e.cat].filter(Boolean).join(' · ') + (e.desc ? '\n' + e.desc : '');
+      return `<button class="chip ${g.owned ? 'on' : ''} ${e.used ? '' : 'dim'}" data-act="gen" data-k="${esc(e.key)}" title="${esc(tip)}">${esc(e.name)}${g.owned && (g.stars || g.grade) ? `<span class="st">${reqText({ s: g.stars || 0, p: g.grade || 0 })}</span>` : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
+    };
+    // 시즌별 묶음: 연의 무장은 따로, 도감에 없는 무장은 '기타'
+    const groupsDef = [['S3 연의 무장', e => /^연의/.test(e.key)], ['시즌3 무장', e => e.season === 3], ['시즌2 무장', e => e.season === 2], ['시즌1 무장', e => e.season === 1], ['기타 (도감 미등록)', () => true]];
+    const left = new Set(gens);
+    const parts = groupsDef.map(([lab, f]) => { const items = [...left].filter(f); items.forEach(x => left.delete(x)); return section(lab, items, e => ownsG(a, e.key), chip); }).join('');
+    return head + sortBar + `<p class="small muted">칩을 누르면 보유/해제됩니다. 시즌별로 나눠 보여주고, 각 묶음 안은 위에서 고른 순서(가나다순 또는 많이 쓰이는 순)입니다. 오른쪽 작은 숫자는 그 무장이 쓰이는 덱 수입니다. 돌파 수는 <b>탭=돌파+1</b>, 승품은 <b>탭=품+1</b>을 고른 뒤 누르면 하나씩 올라갑니다. 돌파는 최대 ${MAX_STARS}돌, 승품은 최대 ${MAX_GRADE}품이고, 최대 다음은 0으로 돌아갑니다. 칩에 마우스를 올리면 시즌·고유 전법이 보입니다.</p>` + (parts || '<div class="empty">표시할 무장이 없습니다.</div>');
   }
   let tacs = [...T.values()];
   if (u.ownUsedOnly) tacs = tacs.filter(e => e.used > 0 || tCount(a, e.key));
   if (q) tacs = tacs.filter(e => e.key.includes(q));
-  tacs.sort(byKoName);
-  const chip = e => { const n = tCount(a, e.key); return `<button class="chip ${n ? 'on' : ''} ${n > 1 ? 'two' : ''}" data-act="tac" data-k="${esc(e.key)}"${e.aliases ? ` title="다른 자료 표기: ${esc([...e.aliases].join(', '))}"` : ''}>${esc(e.name)}${e.aliases ? '<span class="n">*</span>' : ''}${n > 1 ? '<span class="st">×2</span>' : ''}<span class="n">${e.used}</span></button>`; };
-  return head + `<p class="small muted">누를 때마다 <b>없음 → 1개 → 2개(영본) → 없음</b>으로 바뀝니다. 공존덱처럼 같은 전법을 두 부대에 쓰려면 2개가 필요합니다. 전법은 가나다순이고, 오른쪽 숫자는 그 전법이 쓰이는 덱 수입니다.</p>
-    <div class="section-t">전법 가나다순 (보유 ${tacs.filter(e => tCount(a, e.key)).length}/${tacs.length})</div><div class="chips">${tacs.map(chip).join('')}</div>
+  const chip = e => {
+    const n = tCount(a, e.key);
+    const tip = [e.ttype, e.trait, e.tseason].filter(Boolean).join(' · ') + (e.aliases ? `\n다른 자료 표기: ${[...e.aliases].join(', ')}` : '');
+    return `<button class="chip ${n ? 'on' : ''} ${n > 1 ? 'two' : ''} ${e.used ? '' : 'dim'}" data-act="tac" data-k="${esc(e.key)}"${tip ? ` title="${esc(tip)}"` : ''}>${esc(e.name)}${e.aliases ? '<span class="n">*</span>' : ''}${n > 1 ? '<span class="st">×2</span>' : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
+  };
+  const TYPES = ['지휘', '액티브', '패시브', '추격'];
+  const tparts = [...TYPES.map(t => section(`${t} 전법`, tacs.filter(e => e.ttype === t), e => tCount(a, e.key) > 0, chip)),
+    section('유형 미확인', tacs.filter(e => !TYPES.includes(e.ttype)), e => tCount(a, e.key) > 0, chip)].join('');
+  return head + sortBar + `<p class="small muted">누를 때마다 <b>없음 → 1개 → 2개(영본) → 없음</b>으로 바뀝니다. 공존덱처럼 같은 전법을 두 부대에 쓰려면 2개가 필요합니다. 유형별(지휘·액티브·패시브·추격)로 나눠 보여주고, 오른쪽 숫자는 그 전법이 쓰이는 덱 수입니다. 칩에 마우스를 올리면 특성·등장 시즌이 보입니다. <b>덱에 쓰이는 것만</b>을 끄면 S1~S3 전체 전법이 나옵니다.</p>
+    ${tparts || '<div class="empty">표시할 전법이 없습니다.</div>'}
     <div class="bar" style="margin-top:14px"><input type="text" list="dlTactics" id="newTac" placeholder="목록에 없는 전법 직접 추가"><button class="btn" data-act="addTac">추가</button></div>`;
 }
 
