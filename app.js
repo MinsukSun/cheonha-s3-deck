@@ -543,7 +543,11 @@ function buildData() {
 }
 
 // ───────────────────────── 보유 판정 ─────────────────────────
-const ownsG = (a, k) => !!(a.generals[k] && a.generals[k].owned);
+// 연의 무장: 기본/연의 중 한쪽만 쓸 수 있음(게임에서 한쪽을 고르면 반대쪽 조합 불가). 고르지 않은 쪽은 미보유로 봅니다.
+const yeonBase = k => String(k).replace(/^연의/, '');
+const person = k => yeonBase(k);                         // 같은 인물(기본·연의)은 한 번만 출전
+const yeonBlocked = (a, k) => { const c = (a.yeonui || {})[yeonBase(k)]; return c ? (c === 'yeon' ? !/^연의/.test(k) && G.has('연의' + k) : /^연의/.test(k)) : false; };
+const ownsG = (a, k) => !!(a.generals[k] && a.generals[k].owned) && !yeonBlocked(a, k);
 const tCount = (a, k) => a.tactics[k] || 0;
 function check(d, a) {
   const missG = [], missT = [], missS = [];
@@ -692,9 +696,9 @@ function deckSubs(d, a) {
   return { gens, tacs };
 }
 // 대체안을 넣은 덱 사본 (자동 편성용). 대체 1개당 점수 감점.
-function subVariant(d, a) {
+function subVariant(d, a, maxGen = 2) {
   const S = deckSubs(d, a);
-  if (S.gens.length > 2 || S.gens.some(g => !g.list.length) || S.tacs.some(t => !t.list.length) || S.gens.length + S.tacs.length === 0 || S.tacs.length > 3) return null;
+  if (S.gens.length > maxGen || S.gens.some(g => !g.list.length) || S.tacs.some(t => !t.list.length) || S.gens.length + S.tacs.length === 0 || S.tacs.length > 3) return null;
   const subbed = new Set(S.gens.map(g => g.si));
   // 대체한 자리의 돌 조건만 지우고, 나머지 자리의 조건(예: 마초 2돌)은 그대로 둠
   const v = JSON.parse(JSON.stringify({ ...d, slots: d.slots.map((sl, si) => ({ ...sl, gen: sl.gen && { ...sl.gen }, tactics: sl.tactics.map(t => ({ ...t })), req: subbed.has(si) ? {} : sl.req, reqRural: subbed.has(si) ? {} : sl.reqRural })) }));
@@ -723,21 +727,21 @@ function realizations(d, a, cap = 48) {
   return list;
 }
 function fits(r, usedG, usedT, a) {
-  if (r.g.some(k => usedG.has(k))) return false;
-  if (new Set(r.g).size !== r.g.length) return false;
+  if (r.g.some(k => usedG.has(person(k)))) return false;
+  if (new Set(r.g.map(person)).size !== r.g.length) return false;
   for (const [k, n] of Object.entries(r.t)) if ((usedT[k] || 0) + n > tCount(a, k)) return false;
   return true;
 }
 // 무장·전법 중복 없이 최대 k개 덱을 고르는 탐색
-function solve(cands, a, k, fixed = []) {
+function solve(cands, a, k, fixed = [], maxNodes = 150000) {
   const usedG = new Set(), usedT = {};
-  const apply = (r, sign) => { r.g.forEach(x => sign > 0 ? usedG.add(x) : usedG.delete(x)); for (const [x, n] of Object.entries(r.t)) usedT[x] = (usedT[x] || 0) + sign * n; };
+  const apply = (r, sign) => { r.g.forEach(x => sign > 0 ? usedG.add(person(x)) : usedG.delete(person(x))); for (const [x, n] of Object.entries(r.t)) usedT[x] = (usedT[x] || 0) + sign * n; };
   for (const f of fixed) apply(f.r, 1);
-  const items = cands.map(d => ({ d, rs: realizations(d, a), s: tierScore(d) + fitBonus(d, a) - (d.subPenalty || 0) })).filter(x => x.rs.length).sort((x, y) => y.s - x.s);
+  const items = cands.map(d => ({ d, rs: realizations(d, a), s: deckScore(d, a) })).filter(x => x.rs.length).sort((x, y) => y.s - x.s);
   let best = { n: -1, s: -1, pick: [] }, nodes = 0;
   const cur = [];
   const dfs = (i, n, s) => {
-    if (++nodes > 150000) return;
+    if (++nodes > maxNodes) return;
     if (n > best.n || (n === best.n && s > best.s)) best = { n, s, pick: cur.slice() };
     if (n >= k || i >= items.length) return;
     // 상한 가지치기
@@ -1190,6 +1194,8 @@ function viewOwn() {
 
 // ───────────────────────── 렌더: 계정별 편성 ─────────────────────────
 function findDeck(id, a) {
+  if (a.locked && a.locked[id]) { const L = lockedDeck(id, a); if (L) return L; }
+  if (id.startsWith('filler:')) return fillerDeck(id, a);
   const d = DECKS.find(x => x.id === id); if (d) return d;
   const i = id.indexOf('~sub~'); if (i < 0) return null;
   const base = DECKS.find(x => x.id === id.slice(0, i)); return base ? subVariant(base, a) : null;   // 대체 구성은 저장하지 않고 다시 계산
@@ -1202,7 +1208,7 @@ function lineupConflicts(a) {
   for (const d of decks) {
     const rs = realizations(d, a);
     const r = rs.find(x => fits(x, usedG, usedT, a));
-    if (r) { r.g.forEach(k => usedG.add(k)); for (const [k, n] of Object.entries(r.t)) usedT[k] = (usedT[k] || 0) + n; res[d.id] = { ok: true }; }
+    if (r) { r.g.forEach(k => usedG.add(person(k))); for (const [k, n] of Object.entries(r.t)) usedT[k] = (usedT[k] || 0) + n; res[d.id] = { ok: true, r }; }
     else {
       const why = [];
       if (!rs.length) {
@@ -1211,7 +1217,7 @@ function lineupConflicts(a) {
         else why.push(c.status === 'general' ? '무장 미보유' : '전법 미보유');
       }
       else {
-        d.slots.forEach(s => s.gen && s.gen.opts.every(k => usedG.has(k) || !ownsG(a, k)) && why.push(`${s.gen.opts.map(gName).join('/')} 중복`));
+        d.slots.forEach(s => s.gen && s.gen.opts.every(k => usedG.has(person(k)) || !ownsG(a, k)) && why.push(`${s.gen.opts.map(gName).join('/')} 중복`));
         d.slots.forEach(s => s.tactics.forEach(t => t.opts.every(k => (usedT[k] || 0) >= tCount(a, k)) && why.push(`${t.opts.map(tName).join('/')} 부족`)));
       }
       res[d.id] = { ok: false, why: why.length ? why : ['다른 부대와 겹침'] };
@@ -1219,29 +1225,165 @@ function lineupConflicts(a) {
   }
   return res;
 }
+// ───────────────────────── 5부대 편성 (메인 3 + 보조 2) ─────────────────────────
+const deckScore = (d, a) => (d.kind === 'filler' ? 0 : tierScore(d) + fitBonus(d, a) - (d.subPenalty || 0));
+const REAL_KINDS = ['tier', 'variant', 'coexist', 'simple', 'custom', 'research'];
+// 고정(🔒) 덱: 무장은 고정 당시 그대로, 전법만 지금 보유 기준으로 다시 고름(없으면 대체 전법)
+function lockedDeck(id, a) {
+  const gens = a.locked[id]; if (!gens) return null;
+  const baseId = id.startsWith('filler:') ? null : id.split('~sub~')[0];
+  const base = baseId ? DECKS.find(x => x.id === baseId) : fillerDeck(id, a);
+  if (!base) return null;
+  const v = JSON.parse(JSON.stringify({ ...base, slots: base.slots.map(sl => ({ ...sl, gen: sl.gen && { ...sl.gen }, tactics: sl.tactics.map(t => ({ ...t })) })) }));
+  const notes = [];
+  v.slots.forEach((sl, si) => {
+    const k = gens[si]; if (!sl.gen || !k) return;
+    if (!sl.gen.opts.includes(k)) {           // 대체 무장으로 고정한 자리: 원래 무장의 돌 조건은 적용하지 않음
+      sl.subFrom = sl.gen.opts.map(gName).join('/'); notes.push(`${sl.subFrom}→${gName(k)}`);
+      sl.req = {}; sl.reqRural = {}; sl.gen.troop = '';
+    } else {                                    // 원래 무장: 그 무장의 돌 조건만 남김
+      const keep = o => (o && o[k] ? { [k]: o[k] } : {});
+      sl.req = keep(sl.req); sl.reqRural = keep(sl.reqRural);
+    }
+    sl.gen.opts = [k];
+  });
+  const S = deckSubs(v, a);
+  // 없는 전법: 대체가 있으면 바꾸고, 없으면 빈 칸으로 두어 부대 자체는 유지
+  S.tacs.forEach(t => { const tt = v.slots[t.si].tactics[t.ti]; if (t.list[0]) { tt.opts = [t.list[0].key]; notes.push(`${t.miss}→${t.list[0].name}`); } else { tt.drop = true; notes.push(`${t.miss} 없음`); } });
+  v.slots.forEach(sl => (sl.tactics = sl.tactics.filter(t => !t.drop)));
+  return Object.assign(v, { id, lockedOf: id, subNotes: notes.length ? notes : null, subPenalty: 0, name: base.name.replace(/ \(대체\)$/, '') + (notes.length ? ' (대체)' : '') });
+}
+// 남은 무장 부대: 덱이 안 나올 때 남은 무장 3명 + 그 무장이 덱에서 주로 쓰는 전법
+function fillerDeck(id, a) {
+  const parts = id.slice(7).split(';').filter(Boolean).map(p => { const [k, ts] = p.split('='); return { k, ts: (ts || '').split(',').filter(Boolean) }; });
+  return { id, kind: 'filler', name: '남은 무장 부대', title: '남은 무장 부대', tier: null, tierLabel: '', group: '', desc: '', note: '추천 덱이 없어 남은 무장과 각자 자주 쓰는 전법으로 채운 부대입니다. 전법·배치는 직접 조정하세요.', formation: '',
+    slots: parts.map(p => ({ gen: { opts: [p.k], raw: gName(p.k), troop: '' }, tactics: p.ts.map(t => ({ raw: tName(t), copy: false, opts: [t] })), books: [], rows: {}, req: {}, reqRural: {} })) };
+}
+function favTactics(k) {
+  const cnt = {};
+  for (const d of DECKS) for (const sl of d.slots) if (sl.gen && sl.gen.opts.includes(k)) sl.tactics.forEach(t => t.opts.forEach(x => (cnt[x] = (cnt[x] || 0) + 1)));
+  return Object.entries(cnt).sort((x, y) => y[1] - x[1]).map(([x]) => x);
+}
+function makeFillers(a, need, usedG, usedT) {
+  const left = Object.keys(a.generals).filter(k => G.has(k) && ownsG(a, k) && !usedG.has(person(k)))
+    .sort((x, y) => ((G.get(y) || {}).used || 0) - ((G.get(x) || {}).used || 0) || starsOf(a, y) - starsOf(a, x));
+  const out = [];
+  while (out.length < need && left.length >= 3) {
+    // 전열 1명을 먼저 넣고 나머지 2명
+    const fi = left.findIndex(k => (G.get(k) || {}).pos === '전열');
+    const team = [fi >= 0 ? left.splice(fi, 1)[0] : left.shift(), left.shift(), left.shift()];
+    const parts = team.map(k => {
+      const ts = favTactics(k).filter(t => tCount(a, t) > (usedT[t] || 0)).slice(0, 2);
+      ts.forEach(t => (usedT[t] = (usedT[t] || 0) + 1));
+      usedG.add(person(k));
+      return `${k}=${ts.join(',')}`;
+    });
+    out.push('filler:' + parts.join(';'));
+  }
+  return out;
+}
+// 편성 계획: 고정 부대 유지 → 메인(대체 무장 최대 1명) → 보조(대체 무장 최대 2명) → 남은 무장 부대
+function planLineup(a, opts = {}) {
+  const squads = a.squads || 5, mains = Math.min(a.mainCount ?? 3, squads), maxNodes = opts.maxNodes || 150000;
+  const cur = (a.lineup || []).slice(0, squads);
+  const slots = Array(squads).fill(null), fixed = [];
+  const usedG = new Set(), usedT = {};
+  const take = r => { r.g.forEach(k => usedG.add(person(k))); for (const [k, n] of Object.entries(r.t)) usedT[k] = (usedT[k] || 0) + n; };
+  cur.forEach((id, i) => {
+    if (!(a.locked || {})[id]) return;
+    const d = findDeck(id, a); const r = d && realizations(d, a).find(x => fits(x, usedG, usedT, a));
+    slots[i] = id;
+    if (r) { fixed.push({ r }); take(r); }
+    else { const g = (a.locked[id] || []).filter(Boolean); fixed.push({ r: { g, t: {} } }); g.forEach(k => usedG.add(person(k))); }   // 무장은 고정이므로 다른 부대에 쓰지 않음
+  });
+  const base = DECKS.filter(d => REAL_KINDS.includes(d.kind));
+  const allowSub = a.allowSub !== false;
+  const needSub = base.filter(d => { const st = check(d, a).status; return st === 'general' || st === 'tactic'; });
+  const cMain = base.concat(allowSub ? needSub.map(d => subVariant(d, a, 1)).filter(Boolean) : []);
+  const cSup = base.concat(allowSub ? needSub.map(d => subVariant(d, a, 2)).filter(Boolean) : []);
+  const fill = (from, to, cands) => {
+    const free = []; for (let i = from; i < to; i++) if (!slots[i]) free.push(i);
+    if (!free.length) return;
+    const pick = solve(cands, a, free.length, fixed, maxNodes).sort((x, y) => deckScore(y.d, a) - deckScore(x.d, a));
+    pick.forEach((p, j) => { slots[free[j]] = p.d.id; fixed.push({ r: p.r }); take(p.r); });
+  };
+  fill(0, mains, cMain);
+  fill(mains, squads, cSup);
+  const empty = slots.map((x, i) => (x ? -1 : i)).filter(i => i >= 0);
+  if (empty.length && opts.fillers !== false) makeFillers(a, empty.length, usedG, usedT).forEach((id, j) => (slots[empty[j]] = id));
+  // 고정하지 않은 자리는 점수 순으로 다시 배치: 실제 덱이 메인을 먼저 채우고 남은 무장 부대는 뒤로
+  const freeIdx = slots.map((x, i) => (x && !(a.locked || {})[x] ? i : -1)).filter(i => i >= 0);
+  const ordered = freeIdx.map(i => slots[i]).sort((x, y) => { const dx = findDeck(x, a), dy = findDeck(y, a); return (dy ? deckScore(dy, a) : -9) - (dx ? deckScore(dx, a) : -9); });
+  freeIdx.forEach((i, j) => (slots[i] = ordered[j]));
+  const lineup = slots.filter(Boolean);
+  const score = lineup.reduce((sc, id, i) => { const d = findDeck(id, a); return sc + (d ? deckScore(d, a) * (i < mains ? 1 : 0.6) : 0); }, 0);
+  return { lineup, score };
+}
+// 뽑기 추천: 아직 없는 무장을 하나씩 0돌로 넣어 보고 편성 점수가 얼마나 오르는지
+function pullAdvice(a) {
+  const baseScore = planLineup({ ...a, locked: {}, lineup: [] }, { maxNodes: 20000, fillers: false }).score;
+  const cands = [...G.values()].filter(e => (e.season || 0) <= MAX_SEASON && e.used && !ownsG(a, e.key) && !yeonBlocked(a, e.key));
+  const out = [];
+  for (const e of cands) {
+    const b = { ...a, locked: {}, lineup: [], generals: { ...a.generals, [e.key]: { owned: true, stars: 0 } } };
+    const r = planLineup(b, { maxNodes: 20000, fillers: false });
+    const gain = r.score - baseScore;
+    if (gain > 0.05) out.push({ key: e.key, name: e.name, season: e.season, gain, decks: r.lineup.map(id => findDeck(id, b)).filter(d => d && d.slots.some(sl => sl.gen && sl.gen.opts.includes(e.key))).map(d => d.name) });
+  }
+  return out.sort((x, y) => y.gain - x.gain).slice(0, 10);
+}
+const pullCache = {};
+function yeonPairs() { return [...G.values()].filter(e => /^연의/.test(e.key) && G.has(yeonBase(e.key))).map(e => yeonBase(e.key)).sort((x, y) => gName(x).localeCompare(gName(y), 'ko')); }
+function yeonPanel(a, i) {
+  const pairs = yeonPairs(); if (!pairs.length) return '';
+  const own = k => (a.generals[k] && a.generals[k].owned ? ' (보유)' : '');
+  return `<details class="yeon"><summary class="small">연의 선택 ${Object.keys(a.yeonui || {}).length ? `· ${Object.entries(a.yeonui).map(([b, c]) => `${gName(c === 'yeon' ? '연의' + b : b)}`).map(esc).join(', ')}` : '(미정)'}</summary>
+    <p class="small muted">게임에서 기본·연의 중 한쪽을 고르면 반대쪽은 쓸 수 없습니다. 고른 쪽만 추천에 쓰고, 고르지 않은 쪽은 미보유로 봅니다.</p>
+    <div class="yeon-grid">${pairs.map(b => `<label class="small">${esc(gName(b))}<select data-act-input="yeon" data-a="${i}" data-base="${esc(b)}">
+      <option value="">미정</option><option value="base" ${(a.yeonui || {})[b] === 'base' ? 'selected' : ''}>기본${own(b)}</option><option value="yeon" ${(a.yeonui || {})[b] === 'yeon' ? 'selected' : ''}>연의${own('연의' + b)}</option></select></label>`).join('')}</div>
+  </details>`;
+}
+function pullPanel(a, i) {
+  const c = pullCache[a.id];
+  const list = c && c.list ? (c.list.length ? `<ol class="pull">${c.list.map(p => `<li><b>${esc(p.name)}</b> <span class="small muted">시즌${p.season || '?'}</span> <span class="tag sub">편성 점수 +${p.gain.toFixed(1)}</span>${p.decks.length ? `<div class="small muted">들어가는 부대: ${p.decks.map(esc).join(', ')}</div>` : ''}</li>`).join('')}</ol>` : '<p class="small muted">한 명만 더 뽑아서 편성이 좋아지는 무장이 없습니다.</p>') : '';
+  return `<details class="yeon" ${c ? 'open' : ''}><summary class="small">뽑기 추천 (다음에 뽑으면 좋은 무장)</summary>
+    <p class="small muted">아직 없는 무장을 한 명씩 0돌로 넣어 보고, 5부대 편성 점수가 가장 많이 오르는 순서입니다(메인 점수 ×1, 보조 ×0.6). 연의는 고른 쪽만 봅니다.</p>
+    <button class="btn small" data-act="pull" data-a="${i}" ${c && c.busy ? 'disabled' : ''}>${c && c.busy ? '계산 중…' : '뽑기 추천 계산'}</button>${list}
+  </details>`;
+}
 function viewLineup() {
   const cols = state.accounts.map((a, i) => {
-    const decks = lineupDecks(a), conf = lineupConflicts(a);
-    const item = d => {
-      const c = conf[d.id];
-      return `<div class="lu-item ${c.ok ? '' : 'conflict'}"><div class="row"><b>${d.tierLabel ? `<span class="tier">${esc(d.tierLabel)}</span>` : ''}${esc(d.name)}</b>
-        <span><button class="btn small" data-act="luUp" data-a="${i}" data-id="${esc(d.id)}">▲</button> <button class="btn small" data-act="luDel" data-a="${i}" data-id="${esc(d.id)}">✕</button></span></div>
+    const decks = lineupDecks(a), conf = lineupConflicts(a), mains = Math.min(a.mainCount ?? 3, a.squads || 5);
+    const item = (d, idx) => {
+      const c = conf[d.id], locked = !!(a.locked || {})[d.id];
+      const role = idx < mains ? `메인 ${idx + 1}` : `보조 ${idx - mains + 1}`;
+      return `<div class="lu-item ${c.ok ? '' : 'conflict'} ${idx < mains ? 'main' : 'sup'} ${d.kind === 'filler' ? 'filler' : ''}"><div class="row"><b><span class="role">${role}</span>${d.tierLabel ? `<span class="tier">${esc(d.tierLabel)}</span>` : ''}${esc(d.name)}${locked ? ' <span class="tag">고정</span>' : ''}</b>
+        <span><button class="btn small" data-act="luLock" data-a="${i}" data-id="${esc(d.id)}" title="${locked ? '고정 해제' : '이 부대 무장 고정: 다시 편성해도 무장은 그대로, 전법만 다시 고름'}">${locked ? '🔒' : '🔓'}</button> <button class="btn small" data-act="luUp" data-a="${i}" data-id="${esc(d.id)}">▲</button> <button class="btn small" data-act="luDel" data-a="${i}" data-id="${esc(d.id)}">✕</button></span></div>
         ${d.formation || d.subNotes ? `<div class="small muted">${d.formation ? esc(d.formation) : ''}${d.subNotes ? ` · 대체: ${d.subNotes.map(esc).join(', ')}` : ''}</div>` : ''}
-        <div class="lu-slots">${d.slots.map(s => s.gen ? `<div class="slot"><div class="gname">${esc(s.gen.opts.filter(k => ownsG(a, k)).map(gName)[0] || s.gen.opts.map(gName).join('/'))}</div>${s.tactics.map(t => `<div class="tac">· ${esc((t.opts.find(k => tCount(a, k) > 0) && tName(t.opts.find(k => tCount(a, k) > 0))) || t.opts.map(tName).join('/'))}</div>`).join('')}${slotInfo(s)}</div>` : '').join('')}</div>
+        ${d.kind === 'filler' ? `<div class="small warn">${esc(d.note)}</div>` : ''}
+        <div class="lu-slots">${d.slots.map(s => s.gen ? `<div class="slot"><div class="gname">${esc(s.gen.opts.filter(k => ownsG(a, k)).map(gName)[0] || s.gen.opts.map(gName).join('/'))}${(() => { const k = s.gen.opts.find(x => ownsG(a, x)); return k ? `<span class="small"> ${starsOf(a, k)}돌</span>` : ''; })()}</div>${s.tactics.map(t => `<div class="tac">· ${esc((t.opts.find(k => tCount(a, k) > 0) && tName(t.opts.find(k => tCount(a, k) > 0))) || t.opts.map(tName).join('/'))}</div>`).join('')}${slotInfo(s)}</div>` : '').join('')}</div>
         ${c.ok ? '' : `<div class="small miss">${c.why.map(esc).join(', ')}</div>`}</div>`;
     };
-    return `<div class="card"><div class="card-h"><h3>${esc(a.name)}</h3><span class="small muted">${decks.length}/${a.squads} 부대</span></div>
+    const total = decks.reduce((sc, d, idx) => sc + deckScore(d, a) * (idx < mains ? 1 : 0.6), 0);
+    return `<div class="card"><div class="card-h"><h3>${esc(a.name)}</h3><span class="small muted">${decks.length}/${a.squads || 5} 부대 · 편성 점수 ${total.toFixed(1)}</span></div>
       <div class="bar" style="margin:8px 0 0">
         ${serverSelect(a, i)} ${breakSelect(a, i)}
-        <label class="small">부대 수 <select data-act-input="squads" data-a="${i}">${[1, 2, 3, 4, 5].map(n => `<option ${a.squads === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-        <button class="btn small primary" data-act="auto" data-a="${i}">자동 추천 편성</button>
-        <label class="small" title="무장 2명·전법 3개까지 없으면 보유한 대체 무장·전법으로 바꾼 구성도 고려합니다(원래 덱보다 낮은 점수)"><input type="checkbox" data-act="toggleSub" data-a="${i}" ${a.allowSub !== false ? 'checked' : ''}> 대체 허용</label>
-        <button class="btn small" data-act="luClear" data-a="${i}">비우기</button>
+        <label class="small">부대 수 <select data-act-input="squads" data-a="${i}">${[1, 2, 3, 4, 5].map(n => `<option ${(a.squads || 5) === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        <label class="small">메인 <select data-act-input="mainCount" data-a="${i}">${[0, 1, 2, 3, 4, 5].filter(n => n <= (a.squads || 5)).map(n => `<option ${mains === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       </div>
+      <div class="bar" style="margin:6px 0 0">
+        <button class="btn small primary" data-act="auto" data-a="${i}">자동 추천 편성</button>
+        <label class="small" title="무장·전법이 없으면 보유한 대체 무장·전법으로 바꾼 구성도 씁니다(메인은 대체 무장 1명까지, 보조는 2명까지, 원래 덱보다 낮은 점수)"><input type="checkbox" data-act="toggleSub" data-a="${i}" ${a.allowSub !== false ? 'checked' : ''}> 대체 허용</label>
+        <button class="btn small" data-act="luClear" data-a="${i}">비우기(고정 제외)</button>
+      </div>
+      ${yeonPanel(a, i)}
       ${decks.length ? decks.map(item).join('') : '<div class="empty small">편성이 비어 있습니다.<br>자동 추천을 누르거나 추천 덱 탭에서 추가하세요.</div>'}
+      ${pullPanel(a, i)}
     </div>`;
   });
-  return `<div class="hint small"><b>자동 추천 편성</b>은 보유 무장·전법으로 만들 수 있는 덱 중에서 무장이 겹치지 않고 전법 보유 수(영본 포함)를 넘지 않게, 부대 수만큼 티어가 높은 덱을 고릅니다. 대상은 티어덱·변칙덱·공존덱·내 덱입니다. 편성은 직접 추가·삭제·순서 변경도 할 수 있고, 겹치는 부대는 빨간색으로 표시됩니다.</div>
+  return `<div class="hint small"><b>자동 추천 편성</b>은 부대 수(기본 5)를 <b>메인</b>(기본 3)과 <b>보조</b>로 나눠 채웁니다.
+    ① 🔒 고정한 부대는 무장을 그대로 두고 전법만 지금 보유 기준으로 다시 고릅니다. ② 메인은 티어가 높은 덱부터(대체 무장 1명까지). ③ 보조는 남은 무장·전법으로(대체 무장 2명까지). ④ 그래도 빈 자리는 남은 무장 3명과 각자 자주 쓰는 전법으로 채웁니다.
+    무장(같은 인물의 기본·연의 포함)과 전법 수량(영본 포함)은 부대끼리 겹치지 않습니다. 대상은 티어덱·변칙덱·공존덱·추가 조사·내 덱입니다.</div>
     <div class="cols">${cols.join('')}</div>`;
 }
 
@@ -1451,16 +1593,28 @@ document.addEventListener('click', e => {
     case 'clearOwn': if (!confirm(`${a.name}의 ${state.ui.ownTab === 'generals' ? '무장' : '전법'} 보유 표시를 모두 해제할까요?`)) return; if (state.ui.ownTab === 'generals') a.generals = {}; else a.tactics = {}; break;
     case 'bulkApply': return bulkApply();
     case 'toggleLineup': { const i = a.lineup.indexOf(b.dataset.id); if (i >= 0) a.lineup.splice(i, 1); else { a.lineup.push(b.dataset.id); toast(`${a.name} 편성에 추가 (${a.lineup.length}/${a.squads})`); } break; }
-    case 'luDel': ai.lineup = ai.lineup.filter(x => x !== b.dataset.id); break;
+    case 'luDel': ai.lineup = ai.lineup.filter(x => x !== b.dataset.id); if (ai.locked) delete ai.locked[b.dataset.id]; break;
+    case 'luLock': {
+      const id = b.dataset.id; ai.locked = ai.locked || {};
+      if (ai.locked[id]) { delete ai.locked[id]; toast('고정 해제'); break; }
+      const c = lineupConflicts(ai)[id];
+      const d = findDeck(id, ai);
+      const gens = c && c.r ? c.r.g : d.slots.filter(sl => sl.gen).map(sl => sl.gen.opts.find(k => ownsG(ai, k)) || sl.gen.opts[0]);
+      ai.locked[id] = d.slots.map(sl => (sl.gen ? gens.shift() : null));
+      toast('고정: 무장은 그대로 두고 전법만 다시 고릅니다');
+      break;
+    }
+    case 'pull': { pullCache[ai.id] = { busy: true }; render(); setTimeout(() => { pullCache[ai.id] = { list: pullAdvice(ai), at: Date.now() }; render(); }, 30); return; }
+    case 'yeon': break;
     case 'luUp': { const i = ai.lineup.indexOf(b.dataset.id); if (i > 0) [ai.lineup[i - 1], ai.lineup[i]] = [ai.lineup[i], ai.lineup[i - 1]]; break; }
-    case 'luClear': ai.lineup = []; break;
+    case 'luClear': ai.lineup = (ai.lineup || []).filter(id => (ai.locked || {})[id]); break;
     case 'auto': {
-      let cands = DECKS.filter(d => ['tier', 'variant', 'coexist', 'simple', 'custom', 'research'].includes(d.kind));
-      // 대체 허용: 무장 2명·전법 3개까지 빠진 덱은 대체 구성 사본도 후보에 넣음 (점수 감점)
-      if (ai.allowSub !== false) cands = cands.concat(cands.filter(d => check(d, ai).status === 'general' || check(d, ai).status === 'tactic').map(d => subVariant(d, ai)).filter(Boolean));
-      const pick = solve(cands, ai, ai.squads);
-      ai.lineup = pick.map(p => p.d.id);
-      toast(pick.length ? `${ai.name}: ${pick.length}부대 편성` : `${ai.name}: 지금 보유로 만들 수 있는 덱이 없습니다`);
+      const plan = planLineup(ai);
+      ai.lineup = plan.lineup;
+      // 고정 목록 정리 (편성에서 빠진 고정 덱 제거)
+      Object.keys(ai.locked || {}).forEach(id => { if (!ai.lineup.includes(id)) delete ai.locked[id]; });
+      const nf = plan.lineup.filter(id => id.startsWith('filler:')).length;
+      toast(plan.lineup.length ? `${ai.name}: ${plan.lineup.length}부대 편성${nf ? ` (남은 무장 부대 ${nf})` : ''}` : `${ai.name}: 보유 무장이 부족합니다`);
       break;
     }
     case 'applyPreset': { const p = COEXIST[+b.dataset.p]; const pick = presetPick(p, ai); ai.lineup = pick.map(x => x.d.id); if (ai.squads < pick.length) ai.squads = pick.length; toast(`${ai.name} 편성에 적용`); break; }
@@ -1544,6 +1698,8 @@ document.addEventListener('change', e => {
   const a = acct();
   if (A === 'rename') { a.name = t.value.trim() || a.name; }
   else if (A === 'squads') { state.accounts[+t.dataset.a].squads = +t.value; }
+  else if (A === 'mainCount') { state.accounts[+t.dataset.a].mainCount = +t.value; }
+  else if (A === 'yeon') { const x = state.accounts[+t.dataset.a]; x.yeonui = x.yeonui || {}; if (t.value) x.yeonui[t.dataset.base] = t.value; else delete x.yeonui[t.dataset.base]; delete pullCache[x.id]; }
   else if (A === 'breakLevel') { state.accounts[+t.dataset.a].breakLevel = t.value; }
   else if (A === 'server') { state.accounts[+t.dataset.a].server = t.value; toast(`${state.accounts[+t.dataset.a].name}: ${t.value === 'rural' ? '시골섭 완화 조건으로 판정' : '일반 조건으로 판정'}`); }
   else if (A === 'copyFrom' && t.value !== '') {
