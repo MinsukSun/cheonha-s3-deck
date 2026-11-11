@@ -81,7 +81,7 @@
     },
     "전풍": {
      "owned": true,
-     "stars": 2,
+     "stars": 0,
      "grade": 0
     },
     "서성": {
@@ -97,6 +97,16 @@
     "채문희": {
      "owned": true,
      "stars": 1,
+     "grade": 0
+    },
+    "서황": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
+    },
+    "하후연": {
+     "owned": true,
+     "stars": 2,
      "grade": 0
     }
    },
@@ -144,6 +154,6 @@
    }
   ]
  },
- "rev": 10,
- "savedAt": "2026-11-11T13:34:20.044Z"
+ "rev": 11,
+ "savedAt": "2026-11-11T13:36:00.168Z"
 }
