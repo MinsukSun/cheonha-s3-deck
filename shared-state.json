@@ -28,6 +28,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "대교": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -74,6 +79,6 @@
    }
   ]
  },
- "rev": 5,
- "savedAt": "2026-11-11T13:06:33.849Z"
+ "rev": 6,
+ "savedAt": "2026-11-11T13:07:09.931Z"
 }
