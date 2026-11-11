@@ -463,7 +463,13 @@
   {
    "id": "83vcu2sn",
    "name": "부계정",
-   "generals": {},
+   "generals": {
+    "조조": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    }
+   },
    "tactics": {},
    "lineup": [],
    "squads": 5
@@ -500,6 +506,6 @@
    }
   ]
  },
- "rev": 134,
- "savedAt": "2026-11-11T14:01:07.770Z"
+ "rev": 135,
+ "savedAt": "2026-11-11T14:06:59.728Z"
 }
