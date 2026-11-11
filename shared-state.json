@@ -138,6 +138,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "견희": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -184,6 +189,6 @@
    }
   ]
  },
- "rev": 13,
- "savedAt": "2026-11-11T13:36:32.036Z"
+ "rev": 14,
+ "savedAt": "2026-11-11T13:36:42.042Z"
 }
