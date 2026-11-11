@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>천하결전 S3 덱 관리</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <strong>천하결전 덱 관리</strong>
+    <span class="sub">한국 서버 · 시즌3 업주산하</span>
+  </div>
+  <div class="acct-switch" id="acctSwitch"></div>
+</header>
+<nav class="tabs" id="tabs">
+  <button data-tab="decks" class="on">추천 덱</button>
+  <button data-tab="own">보유 관리</button>
+  <button data-tab="lineup">계정별 편성</button>
+  <button data-tab="coexist">공존덱 프리셋</button>
+  <button data-tab="data">데이터·설정</button>
+</nav>
+<main id="view"></main>
+<div id="toast" class="toast" hidden></div>
+<datalist id="dlGenerals"></datalist>
+<datalist id="dlTactics"></datalist>
+<script src="data/sheet-cache.js"></script>
+<script src="data/extra-decks.js"></script>
+<script src="data/research-decks.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
