@@ -633,6 +633,16 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "문추": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "화타": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -671,6 +681,6 @@
    }
   ]
  },
- "rev": 166,
- "savedAt": "2026-11-11T14:09:07.770Z"
+ "rev": 167,
+ "savedAt": "2026-11-11T14:09:11.879Z"
 }
