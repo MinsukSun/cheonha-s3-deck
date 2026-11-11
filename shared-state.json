@@ -618,6 +618,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "서성": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -656,6 +661,6 @@
    }
   ]
  },
- "rev": 163,
- "savedAt": "2026-11-11T14:08:53.414Z"
+ "rev": 164,
+ "savedAt": "2026-11-11T14:08:57.633Z"
 }
