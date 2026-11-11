@@ -6,11 +6,28 @@
    "generals": {
     "조운": {
      "owned": true,
-     "stars": 0
+     "stars": 0,
+     "grade": 0
     },
     "조조": {
      "owned": true,
-     "stars": 0
+     "stars": 1,
+     "grade": 0
+    },
+    "감부인": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
+    },
+    "사마의": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "순욱": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -57,6 +74,6 @@
    }
   ]
  },
- "rev": 4,
- "savedAt": "2026-11-11T12:38:24.587Z"
+ "rev": 5,
+ "savedAt": "2026-11-11T13:06:33.849Z"
 }
