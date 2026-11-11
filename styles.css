@@ -127,3 +127,10 @@ body.locked .top, body.locked .tabs, body.locked main { visibility: hidden; }
 .tag.brk.warn { background: var(--warn-bg); color: var(--warn); }
 .tag.sub { background: var(--ok-bg); color: var(--ok); cursor: help; }
 .subs { margin-top: 4px; line-height: 1.9; }
+.sinfo { margin-top: 6px; padding-top: 4px; border-top: 1px dashed var(--line); font-size: 11px; line-height: 1.45; }
+.sinfo .si { overflow-wrap: anywhere; }
+.sinfo .si span { color: var(--muted); margin-right: 4px; }
+.sinfo .si span::after { content: ':'; }
+.lu-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 6px; }
+.lu-slots .slot { background: var(--panel); }
+@media (max-width: 420px) { .lu-slots { grid-template-columns: 1fr; } }

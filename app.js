@@ -699,7 +699,7 @@ function subVariant(d, a) {
   // 대체한 자리의 돌 조건만 지우고, 나머지 자리의 조건(예: 마초 2돌)은 그대로 둠
   const v = JSON.parse(JSON.stringify({ ...d, slots: d.slots.map((sl, si) => ({ ...sl, gen: sl.gen && { ...sl.gen }, tactics: sl.tactics.map(t => ({ ...t })), req: subbed.has(si) ? {} : sl.req, reqRural: subbed.has(si) ? {} : sl.reqRural })) }));
   const notes = [];
-  S.gens.forEach(g => { v.slots[g.si].gen.opts = [g.list[0].key]; v.slots[g.si].gen.raw = g.list[0].name; notes.push(`${g.miss}→${g.list[0].name}`); });
+  S.gens.forEach(g => { const sl = v.slots[g.si]; sl.subFrom = g.miss; sl.gen.opts = [g.list[0].key]; sl.gen.raw = g.list[0].name; sl.gen.troop = ''; notes.push(`${g.miss}→${g.list[0].name}`); });
   S.tacs.forEach(t => { v.slots[t.si].tactics[t.ti].opts = [t.list[0].key]; notes.push(`${t.miss}→${t.list[0].name}`); });
   v.id = `${d.id}~sub~${notes.join(',')}`; v.subOf = d.id; v.subNotes = notes; v.subPenalty = 2.5 * S.gens.length + 0.8 * S.tacs.length;   // 대체 무장 1명 −2.5, 전법 1개 −0.8
   v.name = `${d.name} (대체)`;
@@ -759,6 +759,18 @@ function serverSelect(a, i) {
 function renderAcctSwitch() {
   $('#acctSwitch').innerHTML = state.accounts.map((a, i) => `<button data-act="acct" data-i="${i}" class="${i === state.active ? 'on' : ''}">${esc(a.name)}</button>`).join('');
 }
+// 무장 한 자리의 세팅: 병종 · 병법 · 장비 · 특성 · 스탯 (시트에 없으면 병종은 무장 기본 병종으로)
+function slotInfo(s) {
+  if (!s.gen) return '';
+  const r = s.rows || {}, base = G.get(s.gen.opts[0]) || {};
+  const troop = s.gen.troop || r['병종'] || (base.troop && base.troop !== '—' ? `${base.troop} (기본)` : '');
+  const gear = r['장비'] || r['장비/탈것'] || '';
+  const trait = [r['장비특성'], r['탈것특성']].filter(Boolean).join(' / ');
+  const stat = r['스텟'] || r['스탯'] || '';
+  const line = (k, v) => v ? `<div class="si"><span>${k}</span>${esc(v)}</div>` : '';
+  const body = line('병종', troop) + line('병법', s.books.join(' · ')) + line('장비', gear) + line('특성', trait) + line('스탯', stat);
+  return body ? `<div class="sinfo">${s.subFrom ? `<div class="si muted">대체 무장 · 세팅은 원래 ${esc(s.subFrom)} 기준</div>` : ''}${body}</div>` : '';
+}
 function deckCard(d, a, opts = {}) {
   const ck = check(d, a);
   const st = d.unknownTactics && ck.status !== 'general' ? 'ok' : ck.status;
@@ -776,16 +788,9 @@ function deckCard(d, a, opts = {}) {
       const ok = t.opts.some(k => tCount(a, k) > 0);
       return `<div class="tac ${ok ? 'have' : 'miss'}">${ok ? '●' : '○'} ${t.opts.map(k => esc(tName(k))).join(' / ')}${t.copy ? ' <span class="tag">영본</span>' : ''}</div>`;
     }).join('');
-    const troop = s.gen.troop || s.rows['병종'] || '';
-    return `<div class="slot"><div class="gname ${meet ? 'have' : has ? 'warn' : 'miss'}">${gtxt}</div>${troop ? `<div class="troop">${esc(troop)}</div>` : ''}${tac || (d.unknownTactics ? '<div class="tac muted">전법 세부 미확인</div>' : '')}</div>`;
+    return `<div class="slot"><div class="gname ${meet ? 'have' : has ? 'warn' : 'miss'}">${gtxt}</div>${tac || (d.unknownTactics ? '<div class="tac muted">전법 세부 미확인</div>' : '')}${slotInfo(s)}</div>`;
   };
-  const rowsKeys = [...new Set(d.slots.flatMap(s => Object.keys(s.rows)))];
-  const hasBooks = d.slots.some(s => s.books.length);
-  const more = (hasBooks || rowsKeys.length) ? `<details class="more"><summary>병법 · 병종 · 장비 · 스탯</summary><table>
-    <tr><th></th>${d.slots.map(s => `<th style="width:auto">${esc(s.gen ? s.gen.opts.map(gName).join('/') : '')}</th>`).join('')}</tr>
-    ${hasBooks ? `<tr><th>병법</th>${d.slots.map(s => `<td>${s.books.map(esc).join('<br>')}</td>`).join('')}</tr>` : ''}
-    ${rowsKeys.map(rk => `<tr><th>${esc(rk)}</th>${d.slots.map(s => `<td>${esc(s.rows[rk] || '')}</td>`).join('')}</tr>`).join('')}
-  </table></details>` : '';
+  const more = '';
   const inLineup = a.lineup.includes(d.id);
   const S = (ck.missG.length || ck.missT.length) && d.kind !== 'community' && Object.keys(a.generals).length ? deckSubs(d, a) : null;
   const subTag = c => `<span class="tag sub" title="${esc(c.why.join(' · ') || '역할이 비슷함')}">${esc(c.name)}${c.stars != null && c.stars >= 0 ? ` ${c.stars}돌` : ''}</span>`;
@@ -1221,7 +1226,8 @@ function viewLineup() {
       const c = conf[d.id];
       return `<div class="lu-item ${c.ok ? '' : 'conflict'}"><div class="row"><b>${d.tierLabel ? `<span class="tier">${esc(d.tierLabel)}</span>` : ''}${esc(d.name)}</b>
         <span><button class="btn small" data-act="luUp" data-a="${i}" data-id="${esc(d.id)}">▲</button> <button class="btn small" data-act="luDel" data-a="${i}" data-id="${esc(d.id)}">✕</button></span></div>
-        <div class="mem">${d.slots.map(s => `${esc(s.gen ? s.gen.opts.map(gName).join('/') : '')}${s.tactics.length ? ` (${s.tactics.map(t => esc(t.opts.map(tName).join('/'))).join(', ')})` : ''}`).join(' · ')}</div>
+        ${d.formation || d.subNotes ? `<div class="small muted">${d.formation ? esc(d.formation) : ''}${d.subNotes ? ` · 대체: ${d.subNotes.map(esc).join(', ')}` : ''}</div>` : ''}
+        <div class="lu-slots">${d.slots.map(s => s.gen ? `<div class="slot"><div class="gname">${esc(s.gen.opts.filter(k => ownsG(a, k)).map(gName)[0] || s.gen.opts.map(gName).join('/'))}</div>${s.tactics.map(t => `<div class="tac">· ${esc((t.opts.find(k => tCount(a, k) > 0) && tName(t.opts.find(k => tCount(a, k) > 0))) || t.opts.map(tName).join('/'))}</div>`).join('')}${slotInfo(s)}</div>` : '').join('')}</div>
         ${c.ok ? '' : `<div class="small miss">${c.why.map(esc).join(', ')}</div>`}</div>`;
     };
     return `<div class="card"><div class="card-h"><h3>${esc(a.name)}</h3><span class="small muted">${decks.length}/${a.squads} 부대</span></div>
