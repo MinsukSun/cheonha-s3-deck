@@ -68,9 +68,11 @@ const LS_CLOUD = 'tk3-cloud-v1', LS_CLOUD_META = 'tk3-cloud-meta-v1';
 const DEFAULT_CLOUD = { repo: 'MinsukSun/cheonha-s3-deck', branch: 'data', path: 'shared-state.json', token: '', enabled: true };
 const Cloud = (() => {
   let cfg = Object.assign({}, DEFAULT_CLOUD, load(LS_CLOUD, {}));
-  let meta = load(LS_CLOUD_META, { sha: null, base: null, at: null });   // base: 마지막으로 서버와 맞춘 공유 데이터
+  let meta = load(LS_CLOUD_META, { sha: null, base: null, at: null, rev: 0 });   // base: 마지막으로 서버와 맞춘 공유 데이터, rev: 서버 저장 번호
   let status = 'idle', detail = '', timer = null, busy = false, again = false;
-  const shared = s => ({ accounts: s.accounts, customDecks: s.customDecks || [], sheet: s.sheet });
+  // 깊은 복사본: 저장 중에 화면에서 바꾼 내용이 '저장됨'으로 섞이지 않게 합니다.
+  const shared = s => JSON.parse(JSON.stringify({ accounts: s.accounts, customDecks: s.customDecks || [], sheet: s.sheet }));
+  const body = d => { const { rev, savedAt, ...rest } = d || {}; return rest; };
   const sj = o => JSON.stringify(o);
   const api = p => `https://api.github.com/repos/${cfg.repo}${p}`;
   const hdr = () => ({ Accept: 'application/vnd.github+json', ...(cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {}) });
@@ -127,10 +129,11 @@ const Cloud = (() => {
     return out;
   }
   function applyShared(data) {
+    data = body(JSON.parse(sj(data)));
     state.accounts = data.accounts; state.customDecks = data.customDecks || []; if (data.sheet) state.sheet = data.sheet;
     normalizeAccounts(); clampAccounts(); save(LS_STATE, state);
   }
-  const dirty = () => meta.base == null || sj(shared(state)) !== sj(meta.base);
+  const dirty = () => meta.base == null || sj(shared(state)) !== sj(body(meta.base));
 
   // 서버에서 받아오기. 내 변경이 없으면 서버 것으로 바꾸고, 있으면 합쳐서 저장합니다.
   async function pull(opts = {}) {
@@ -142,17 +145,21 @@ const Cloud = (() => {
       if (!data) {
         if (canWrite()) { busy = false; return push(); }
         setStatus('empty', '아직 공유 파일이 없습니다. 토큰을 넣으면 이 브라우저 데이터로 만듭니다.');
+      } else if (!opts.adopt && meta.base && (data.rev || 0) < (meta.rev || 0)) {
+        // 방금 저장한 것보다 오래된 사본(GitHub 캐시)이 내려온 경우: 무시
+        setStatus(canWrite() ? (dirty() ? 'pending' : 'ok') : 'readonly');
+        if (dirty() && canWrite()) { busy = false; schedule(); return; }
       } else if (opts.adopt || !dirty() || !meta.base) {
-        const changed = sj(shared(state)) !== sj(data);
+        const changed = sj(shared(state)) !== sj(body(data));
         // 처음 연결할 때 이 브라우저에만 있던 데이터는 따로 보관 (데이터·설정 → 백업에서 복구 가능)
         if (changed && !meta.base && state.accounts.some(a => Object.keys(a.generals).length || Object.keys(a.tactics).length)) save('tk3-state-before-cloud', state);
-        meta = { sha: sha ?? meta.sha, base: data, at: new Date().toISOString() }; saveMeta();
+        meta = { sha: sha ?? meta.sha, base: data, at: new Date().toISOString(), rev: data.rev || 0 }; saveMeta();
         applyShared(data);
         if (changed && typeof start._done !== 'undefined') { buildData(); render(); }
         setStatus(canWrite() ? 'ok' : 'readonly');
       } else if (canWrite()) {
-        const merged = merge(data, shared(state), meta.base);
-        meta = { sha, base: data, at: meta.at }; saveMeta();
+        const merged = merge(body(data), shared(state), body(meta.base));
+        meta = { sha, base: data, at: meta.at, rev: Math.max(meta.rev || 0, data.rev || 0) }; saveMeta();
         applyShared(merged); buildData(); render();
         busy = false; return push();
       } else {
@@ -169,18 +176,20 @@ const Cloud = (() => {
     try {
       if (!meta.sha) await ensureBranch();
       for (let tries = 0; tries < 3; tries++) {
-        const local = shared(state);
-        const res = await putRemote(local, meta.sha);
-        if (!res.conflict) { meta = { sha: res.sha, base: JSON.parse(sj(local)), at: new Date().toISOString() }; saveMeta(); setStatus('ok'); break; }
+        const local = shared(state);                       // 이 순간의 복사본만 올림
+        const rev = (meta.rev || 0) + 1;
+        const doc = { ...local, rev, savedAt: new Date().toISOString() };
+        const res = await putRemote(doc, meta.sha);
+        if (!res.conflict) { meta = { sha: res.sha, base: doc, at: doc.savedAt, rev }; saveMeta(); setStatus(dirty() ? 'pending' : 'ok'); if (dirty()) again = true; break; }
         // 다른 곳에서 먼저 저장함 → 최신본에 내 변경만 얹어 다시 시도
         const { data, sha } = await fetchRemote();
-        const merged = data ? merge(data, local, meta.base) : local;
-        meta = { sha, base: data, at: meta.at }; saveMeta();
+        const merged = data ? merge(body(data), local, body(meta.base)) : local;
+        meta = { sha, base: data, at: meta.at, rev: Math.max(meta.rev || 0, data?.rev || 0) }; saveMeta();
         applyShared(merged); buildData(); render();
         setStatus('sync', '다른 기기의 변경과 합치는 중');
         if (tries === 2) throw new Error('저장 충돌이 계속됩니다. 잠시 뒤 다시 시도하세요.');
       }
-    } catch (e) { setStatus('error', e.message); }
+    } catch (e) { setStatus('error', e.message); toast('공유 저장 실패: ' + e.message); }
     busy = false;
     if (again) { again = false; schedule(); }
   }
@@ -198,12 +207,12 @@ const Cloud = (() => {
   }
   // 주기적·포커스 시 새로고침 (토큰 있으면 1분, 없으면 포커스 때만)
   setInterval(() => { if (cfg.token && document.visibilityState === 'visible' && !dirty()) pull(); }, 60000);
-  window.addEventListener('focus', () => { if (cfg.enabled && !busy) pull(); });
+  window.addEventListener('focus', () => { if (!cfg.enabled || busy) return; if (dirty() && canWrite()) schedule(); else if (!dirty()) pull(); });
   return {
     pull, push, onLocalChange, paintStatus,
     get cfg() { return cfg; }, get status() { return status; },
-    setCfg(next) { cfg = Object.assign({}, cfg, next); saveCfg(); meta = { sha: null, base: null, at: null }; saveMeta(); },
-    uploadLocal: async () => { meta.base = { accounts: [] }; const { sha } = await fetchRemote().catch(() => ({})); meta.sha = sha || null; saveMeta(); return push(); },
+    setCfg(next) { cfg = Object.assign({}, cfg, next); saveCfg(); meta = { sha: null, base: null, at: null, rev: 0 }; saveMeta(); },
+    uploadLocal: async () => { const r = await fetchRemote().catch(() => ({})); meta = { sha: r.sha || null, base: { accounts: [] }, at: meta.at, rev: Math.max(meta.rev || 0, r.data?.rev || 0) }; saveMeta(); return push(); },
     adoptRemote: () => pull({ adopt: true }),
   };
 })();
@@ -638,6 +647,9 @@ function viewDecks() {
 }
 
 // ───────────────────────── 렌더: 보유 관리 ─────────────────────────
+// 가나다순: 공백 무시, 'SP 제갈량'은 '제갈량' 바로 뒤에 오도록 SP를 빼고 비교
+const koSortKey = n => String(n).replace(/^sp\s*/i, '').replace(/\s+/g, '') + (/^sp/i.test(n) ? '\uffff' : '');
+const byKoName = (x, y) => koSortKey(x.name).localeCompare(koSortKey(y.name), 'ko');
 function viewOwn() {
   const a = acct(), u = state.ui, q = key(u.ownQ);
   const head = `
@@ -662,28 +674,22 @@ function viewOwn() {
     let gens = [...G.values()].filter(e => (e.season || 0) <= MAX_SEASON);
     if (u.ownUsedOnly) gens = gens.filter(e => e.used > 0 || ownsG(a, e.key));
     if (q) gens = gens.filter(e => e.key.includes(q));
-    const groupsDef = [['S3 연의 무장', e => /^연의/.test(e.key)], ['시즌3 무장', e => e.season === 3], ['시즌2 무장', e => e.season === 2], ['시즌1 무장', e => e.season === 1], ['기타 (도감 미등록)', () => true]];
-    const left = new Set(gens), parts = [];
-    for (const [lab, f] of groupsDef) {
-      const items = [...left].filter(f); items.forEach(x => left.delete(x));
-      if (!items.length) continue;
-      items.sort((x, y) => y.used - x.used || x.name.localeCompare(y.name, 'ko'));
-      parts.push(`<div class="section-t">${lab} (${items.filter(e => ownsG(a, e.key)).length}/${items.length})</div><div class="chips">${items.map(e => {
+    gens.sort(byKoName);
+    const owned = gens.filter(e => ownsG(a, e.key)).length;
+    const parts = [`<div class="section-t">무장 가나다순 (보유 ${owned}/${gens.length})</div><div class="chips">${gens.map(e => {
         const g = a.generals[e.key] || {};
-        return `<button class="chip ${g.owned ? 'on' : ''} ${e.used ? '' : 'dim'}" data-act="gen" data-k="${esc(e.key)}" title="${esc([e.skill, e.type, e.cat].filter(Boolean).join(' · ') + (e.desc ? '\n' + e.desc : ''))}">${esc(e.name)}${g.owned && (g.stars || g.grade) ? `<span class="st">${reqText({ s: g.stars || 0, p: g.grade || 0 })}</span>` : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
-      }).join('')}</div>`);
-    }
-    return head + `<p class="small muted">칩을 누르면 보유/해제됩니다. 오른쪽 작은 숫자는 그 무장이 쓰이는 덱 수입니다. 돌파 수는 <b>탭=돌파+1</b>, 승품은 <b>탭=품+1</b>을 고른 뒤 누르면 하나씩 올라갑니다. 돌파는 최대 ${MAX_STARS}돌, 승품은 최대 ${MAX_GRADE}품이고, 최대 다음은 0으로 돌아갑니다. 칩에 마우스를 올리면 고유 전법이 보입니다.</p>` + (parts.join('') || '<div class="empty">표시할 무장이 없습니다.</div>');
+        const tip = [e.season ? `시즌${e.season}` : '', e.skill, e.type, e.cat].filter(Boolean).join(' · ') + (e.desc ? '\n' + e.desc : '');
+        return `<button class="chip ${g.owned ? 'on' : ''} ${e.used ? '' : 'dim'}" data-act="gen" data-k="${esc(e.key)}" title="${esc(tip)}">${esc(e.name)}${g.owned && (g.stars || g.grade) ? `<span class="st">${reqText({ s: g.stars || 0, p: g.grade || 0 })}</span>` : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
+      }).join('')}</div>`];
+    return head + `<p class="small muted">칩을 누르면 보유/해제됩니다. 무장은 가나다순이고, 오른쪽 작은 숫자는 그 무장이 쓰이는 덱 수입니다. 돌파 수는 <b>탭=돌파+1</b>, 승품은 <b>탭=품+1</b>을 고른 뒤 누르면 하나씩 올라갑니다. 돌파는 최대 ${MAX_STARS}돌, 승품은 최대 ${MAX_GRADE}품이고, 최대 다음은 0으로 돌아갑니다. 칩에 마우스를 올리면 고유 전법이 보입니다.</p>` + (parts.join('') || '<div class="empty">표시할 무장이 없습니다.</div>');
   }
   let tacs = [...T.values()];
   if (u.ownUsedOnly) tacs = tacs.filter(e => e.used > 0 || tCount(a, e.key));
   if (q) tacs = tacs.filter(e => e.key.includes(q));
-  tacs.sort((x, y) => y.used - x.used || x.name.localeCompare(y.name, 'ko'));
-  const core = tacs.filter(e => e.used >= 3), rest = tacs.filter(e => e.used < 3);
+  tacs.sort(byKoName);
   const chip = e => { const n = tCount(a, e.key); return `<button class="chip ${n ? 'on' : ''} ${n > 1 ? 'two' : ''}" data-act="tac" data-k="${esc(e.key)}"${e.aliases ? ` title="다른 자료 표기: ${esc([...e.aliases].join(', '))}"` : ''}>${esc(e.name)}${e.aliases ? '<span class="n">*</span>' : ''}${n > 1 ? '<span class="st">×2</span>' : ''}<span class="n">${e.used}</span></button>`; };
-  return head + `<p class="small muted">누를 때마다 <b>없음 → 1개 → 2개(영본) → 없음</b>으로 바뀝니다. 공존덱처럼 같은 전법을 두 부대에 쓰려면 2개가 필요합니다. 오른쪽 숫자는 그 전법이 쓰이는 덱 수입니다.</p>
-    ${core.length ? `<div class="section-t">자주 쓰이는 전법 (${core.filter(e => tCount(a, e.key)).length}/${core.length})</div><div class="chips">${core.map(chip).join('')}</div>` : ''}
-    ${rest.length ? `<div class="section-t">그 외 전법 (${rest.filter(e => tCount(a, e.key)).length}/${rest.length})</div><div class="chips">${rest.map(chip).join('')}</div>` : ''}
+  return head + `<p class="small muted">누를 때마다 <b>없음 → 1개 → 2개(영본) → 없음</b>으로 바뀝니다. 공존덱처럼 같은 전법을 두 부대에 쓰려면 2개가 필요합니다. 전법은 가나다순이고, 오른쪽 숫자는 그 전법이 쓰이는 덱 수입니다.</p>
+    <div class="section-t">전법 가나다순 (보유 ${tacs.filter(e => tCount(a, e.key)).length}/${tacs.length})</div><div class="chips">${tacs.map(chip).join('')}</div>
     <div class="bar" style="margin-top:14px"><input type="text" list="dlTactics" id="newTac" placeholder="목록에 없는 전법 직접 추가"><button class="btn" data-act="addTac">추가</button></div>`;
 }
 
