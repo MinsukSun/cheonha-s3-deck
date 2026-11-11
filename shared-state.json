@@ -558,6 +558,16 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "장합": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "서황": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -596,6 +606,6 @@
    }
   ]
  },
- "rev": 152,
- "savedAt": "2026-11-11T14:08:10.891Z"
+ "rev": 153,
+ "savedAt": "2026-11-11T14:08:16.639Z"
 }
