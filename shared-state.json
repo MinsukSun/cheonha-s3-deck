@@ -523,6 +523,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "황개": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -561,6 +566,6 @@
    }
   ]
  },
- "rev": 145,
- "savedAt": "2026-11-11T14:07:39.110Z"
+ "rev": 146,
+ "savedAt": "2026-11-11T14:07:41.502Z"
 }
