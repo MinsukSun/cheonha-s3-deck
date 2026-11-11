@@ -488,6 +488,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "전풍": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -526,6 +531,6 @@
    }
   ]
  },
- "rev": 138,
- "savedAt": "2026-11-11T14:07:12.130Z"
+ "rev": 139,
+ "savedAt": "2026-11-11T14:07:17.722Z"
 }
