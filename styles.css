@@ -123,3 +123,5 @@ body.locked .top, body.locked .tabs, body.locked main { visibility: hidden; }
 .ocr-t select { padding: 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
 .ocr-line { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ocr-raw { white-space: pre-wrap; max-height: 200px; overflow: auto; background: var(--bg); padding: 6px; border-radius: 6px; }
+.tag.brk.good { background: var(--ok-bg); color: var(--ok); }
+.tag.brk.warn { background: var(--warn-bg); color: var(--warn); }

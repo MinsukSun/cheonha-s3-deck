@@ -561,6 +561,46 @@ const STATUS_LABEL = { ok: '구성 가능', stars: '돌파·품 부족', tactic:
 const STATUS_ORDER = { ok: 0, stars: 1, tactic: 2, general: 3 };
 const tierScore = d => (d.tier == null ? (d.kind === 'community' ? 2 : 3) : Math.max(0.5, 10 - d.tier * 6));
 
+// ── 돌파 수준: 무장 돌 기준으로 덱을 고르는 고돌 / 중간돌 / 명함(저돌) 구분 ──
+// 덱 쪽: 시트·사이트 문구에서 '고돌파용', '높은 돌파 권장', '고승품' → 고돌 덱 / '저돌파용', '명함', '낮은 돌파도 가능' → 명함·저돌 덱 / '모든 돌파용' → 무관
+const BREAK_LABEL = { low: '명함', mid: '중간돌', high: '고돌' };
+function deckBreak(d) {
+  const cls = t => {
+    if (!t) return null;
+    if (/모든\s*돌파/.test(t)) return 'all';
+    const hi = /고돌파|고승품|높은\s*돌파|고돌/.test(t), lo = /저돌파|저돌|명함|낮은\s*돌파/.test(t);
+    return hi && !lo ? 'high' : lo && !hi ? 'low' : null;
+  };
+  return cls(d.group) || cls([d.desc, d.note].filter(Boolean).join(' '));
+}
+// 계정 쪽: 덱에 쓰이는 보유 무장의 평균 돌 (수동 지정이 있으면 그것). 1돌 미만 = 명함, 3돌 미만 = 중간돌, 그 이상 = 고돌
+function breakInfo(a) {
+  const own = Object.entries(a.generals || {}).filter(([k, g]) => g.owned && (G.get(k) || {}).used);
+  const avg = own.length ? own.reduce((s, [, g]) => s + (g.stars || 0), 0) / own.length : null;
+  const auto = avg == null ? null : avg < 1 ? 'low' : avg < 3 ? 'mid' : 'high';
+  const level = a.breakLevel && a.breakLevel !== 'auto' ? a.breakLevel : auto;
+  return { level, auto, avg, manual: !!(a.breakLevel && a.breakLevel !== 'auto') };
+}
+// 덱이 계정 수준에 맞는지: good(맞음) / warn(고돌 권장인데 내 수준이 낮음) / null(기준 없음)
+function breakFit(d, a) {
+  const bt = deckBreak(d), lv = breakInfo(a).level;
+  if (!bt || bt === 'all' || !lv) return { bt, fit: null };
+  if (bt === 'high') return { bt, fit: lv === 'high' ? 'good' : 'warn' };
+  return { bt, fit: lv === 'high' ? null : 'good' };
+}
+const fitBonus = (d, a) => { const f = breakFit(d, a).fit; return f === 'warn' ? -1.5 : f === 'good' ? 0.5 : 0; };
+// 덱 무장들의 현재 평균 돌 (보유한 대체 무장 중 가장 높은 돌 기준)
+function deckAvgStars(d, a) {
+  const v = d.slots.filter(s => s.gen).map(s => Math.max(-1, ...s.gen.opts.map(k => (ownsG(a, k) ? starsOf(a, k) : -1)))).filter(x => x >= 0);
+  return v.length ? v.reduce((x, y) => x + y, 0) / v.length : null;
+}
+function breakSelect(a, i) {
+  const bi = breakInfo(a);
+  const autoTxt = bi.auto ? `자동: ${BREAK_LABEL[bi.auto]} (평균 ${bi.avg.toFixed(1)}돌)` : '자동 (보유 무장 없음)';
+  return `<label class="small" title="무장 돌 기준으로 고돌·명함 덱을 구분합니다. 평균 1돌 미만 = 명함, 3돌 미만 = 중간돌, 그 이상 = 고돌">돌파 수준
+    <select data-act-input="breakLevel" data-a="${i}"><option value="auto">${autoTxt}</option>${['low', 'mid', 'high'].map(v => `<option value="${v}" ${a.breakLevel === v ? 'selected' : ''}>${BREAK_LABEL[v]}</option>`).join('')}</select></label>`;
+}
+
 // 덱 하나의 실제 구성 후보 (대체 무장/전법 조합)
 function realizations(d, a, cap = 48) {
   let list = [{ g: [], t: {} }];
@@ -588,7 +628,7 @@ function solve(cands, a, k, fixed = []) {
   const usedG = new Set(), usedT = {};
   const apply = (r, sign) => { r.g.forEach(x => sign > 0 ? usedG.add(x) : usedG.delete(x)); for (const [x, n] of Object.entries(r.t)) usedT[x] = (usedT[x] || 0) + sign * n; };
   for (const f of fixed) apply(f.r, 1);
-  const items = cands.map(d => ({ d, rs: realizations(d, a), s: tierScore(d) })).filter(x => x.rs.length).sort((x, y) => y.s - x.s);
+  const items = cands.map(d => ({ d, rs: realizations(d, a), s: tierScore(d) + fitBonus(d, a) })).filter(x => x.rs.length).sort((x, y) => y.s - x.s);
   let best = { n: -1, s: -1, pick: [] }, nodes = 0;
   const cur = [];
   const dfs = (i, n, s) => {
@@ -649,7 +689,7 @@ function deckCard(d, a, opts = {}) {
   ].join('');
   return `<div class="card ${st}">
     <div class="card-h"><h3>${d.tierLabel ? `<span class="tier">${esc(d.tierLabel)}</span>` : ''}${esc(d.name)}</h3><span class="status ${st}">${d.unknownTactics && st === 'ok' ? '무장 보유' : STATUS_LABEL[st]}</span></div>
-    <div><span class="tag">${esc(KIND_LABEL[d.kind] || d.kind)}</span>${d.group ? `<span class="tag">${esc(d.group)}</span>` : ''}${d.choiceTag ? `<span class="tag">${esc(d.choiceTag)}</span>` : ''}${d.formation ? `<span class="tag">${esc(d.formation)}</span>` : ''}${d.url ? `<a class="tag" href="${esc(d.url)}" target="_blank" rel="noopener">출처</a>` : ''}</div>
+    <div><span class="tag">${esc(KIND_LABEL[d.kind] || d.kind)}</span>${(() => { const bf = breakFit(d, a), av = deckAvgStars(d, a); if (!bf.bt || bf.bt === 'all') return ''; const lab = bf.bt === 'high' ? '고돌 덱' : '명함·저돌 가능'; return `<span class="tag brk ${bf.fit || ''}" title="${bf.fit === 'warn' ? '고돌파 권장 덱인데 내 돌파 수준이 낮습니다' : '내 돌파 수준에 맞는 덱'}${av != null ? ` · 이 덱 무장 평균 ${av.toFixed(1)}돌` : ''}">${lab}${bf.fit === 'warn' ? ' ⚠' : bf.fit === 'good' ? ' ✓' : ''}</span>`; })()}${d.group ? `<span class="tag">${esc(d.group)}</span>` : ''}${d.choiceTag ? `<span class="tag">${esc(d.choiceTag)}</span>` : ''}${d.formation ? `<span class="tag">${esc(d.formation)}</span>` : ''}${d.url ? `<a class="tag" href="${esc(d.url)}" target="_blank" rel="noopener">출처</a>` : ''}</div>
     ${d.desc ? `<div class="desc">${esc(d.desc)}</div>` : ''}
     <div class="slots">${d.slots.map(slot).join('')}</div>
     ${missLine}
@@ -694,7 +734,7 @@ function viewDecks() {
   ${cnt.stars ? `<div class="hint small">일부 덱은 시트 설명에 돌파·승품 조건(예: 마운록 4돌 2품 이상)이 있습니다. <b>보유 관리</b>의 <b>돌파</b>·<b>품</b> 모드로 입력해야 정확히 판정됩니다. 입력하지 않은 무장은 0돌 0품으로 봅니다. 인구가 적은 서버라면 <b>서버: 시골섭 완화</b>를 고르면 시트에 적힌 완화 조건(예: 시골섭 3돌 1품)으로 판정합니다.</div>` : ''}
   <div class="bar">
     <input type="search" placeholder="덱·무장·전법 검색" value="${esc(u.q)}" data-model="q">
-    ${serverSelect(a, state.active)}
+    ${serverSelect(a, state.active)} ${breakSelect(a, state.active)}
     <select data-model="src">
       ${[['main', '시트+추가 조사+내 덱'], ['sheet', '시트 (티어+변칙)'], ['research', '추가 조사'], ['tier', '티어덱'], ['variant', '변칙·계열덱'], ['coexist', '공존덱 구성'], ['community', '커뮤니티(세부 미확인)'], ['custom', '내 덱'], ['all', '전체']].map(([v, l]) => `<option value="${v}" ${u.src === v ? 'selected' : ''}>${l}</option>`).join('')}
     </select>
@@ -897,7 +937,7 @@ function ocrMatch(data, color) {
     }
     if (it.kind === 'g') { const g = a.generals[it.key] || {}; return { kind: 'g', alts: it.alts, key: it.key, name: it.name, exact: it.exact, line: it.line, checked: true, read: [it.stars != null ? `${it.stars}돌` : '', it.grade != null ? `${it.grade}품` : ''].filter(Boolean).join(' '), cur: g.owned ? reqText({ s: g.stars || 0, p: g.grade || 0 }) || '0돌' : '', stars: it.stars ?? (g.stars || 0), grade: it.grade ?? (g.grade || 0) }; }
     const n = tCount(a, it.key), ts = (a.tstars || {})[it.key];
-    return { kind: 't', key: it.key, name: it.name, exact: it.exact, line: it.line, checked: true, read: it.stars != null ? `${it.stars}돌` : '', cur: n ? `${n}개${ts != null ? ` ${ts}돌` : ''}` : '', count: Math.max(1, n), stars: it.stars ?? (ts || 0) };
+    return { kind: 't', key: it.key, name: it.name, exact: it.exact, line: it.line, checked: true, cur: n ? `${n}개` : '', count: Math.max(1, n) };
   }).sort((x, y) => (x.kind === y.kind ? byKoName(x, y) : x.kind === 'g' ? -1 : 1));
 }
 async function ocrRun(blob) {
@@ -927,7 +967,7 @@ function ocrPanel() {
     <td>${it.alts ? `<select data-ocr="key" data-i="${i}" title="SP·연의 무장인지 확인하세요">${it.alts.map(k => `<option value="${esc(k)}" ${k === it.key ? 'selected' : ''}>${esc(gName(k))}</option>`).join('')}</select>` : `<b>${esc(it.name)}</b>`}${it.exact ? '' : ' <span class="tag" title="글자 하나가 다르게 읽혔지만 가장 가까운 이름">비슷</span>'}${it.read ? ` <span class="tag" title="캡처에서 읽은 값">읽음 ${esc(it.read)}</span>` : ''}${it.cur ? ` <span class="small muted">현재 ${esc(it.cur)}</span>` : ' <span class="small have">새로 추가</span>'}</td>
     <td>${it.kind === 'g'
       ? `<select data-ocr="stars" data-i="${i}">${opt(MAX_STARS, it.stars, '돌')}</select> <select data-ocr="grade" data-i="${i}">${opt(MAX_GRADE, it.grade, '품')}</select>`
-      : `<select data-ocr="stars" data-i="${i}">${opt(MAX_STARS, it.stars, '돌')}</select> <select data-ocr="count" data-i="${i}"><option value="1" ${it.count === 1 ? 'selected' : ''}>1개</option><option value="2" ${it.count === 2 ? 'selected' : ''}>2개(영본)</option></select>`}</td>
+      : `<select data-ocr="count" data-i="${i}"><option value="1" ${it.count === 1 ? 'selected' : ''}>1개</option><option value="2" ${it.count === 2 ? 'selected' : ''}>2개(영본)</option></select>`}</td>
     <td class="small muted ocr-line" title="${esc(it.line)}">${esc(it.line)}</td></tr>`;
   const idx = it => ocr.items.indexOf(it);
   return `<div class="hint ocr">
@@ -955,7 +995,7 @@ function ocrApply() {
   for (const it of ocr.items) {
     if (!it.checked) continue;
     if (it.kind === 'g') a.generals[it.key] = { owned: true, stars: +it.stars || 0, grade: +it.grade || 0 };
-    else { a.tactics[it.key] = Math.max(1, Math.min(2, +it.count || 1)); (a.tstars = a.tstars || {})[it.key] = Math.min(MAX_STARS, +it.stars || 0); }
+    else a.tactics[it.key] = Math.max(1, Math.min(2, +it.count || 1));
     n++;
   }
   ocr.status = 'idle'; ocr.items = []; ocr.img = ''; ocr.raw = '';
@@ -982,10 +1022,10 @@ function viewOwn() {
   const head = `
   <div class="bar">
     <input type="text" value="${esc(a.name)}" data-act-input="rename" style="max-width:160px" title="계정 이름">
-    ${serverSelect(a, state.active)}
+    ${serverSelect(a, state.active)} ${breakSelect(a, state.active)}
     <div class="seg">${[['generals', '무장'], ['tactics', '전법']].map(([v, l]) => `<button data-act="set" data-k="ownTab" data-v="${v}" class="${u.ownTab === v ? 'on' : ''}">${l}</button>`).join('')}</div>
     ${u.ownTab === 'generals' ? `<div class="seg">${[['stars', '돌파'], ['grade', '품']].map(([v, l]) => `<button data-act="set" data-k="ownMode" data-v="${v}" class="${(u.ownMode === 'grade' ? 'grade' : 'stars') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`
-      : `<div class="seg">${[['stars', '돌'], ['copies', '영본 개수']].map(([v, l]) => `<button data-act="set" data-k="ownTacMode" data-v="${v}" class="${(u.ownTacMode || 'stars') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`}
+      : `<div class="seg">${[['own', '보유'], ['copies', '영본 개수']].map(([v, l]) => `<button data-act="set" data-k="ownTacMode" data-v="${v}" class="${(u.ownTacMode === 'copies' ? 'copies' : 'own') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`}
     <input type="search" placeholder="이름 검색" value="${esc(u.ownQ)}" data-model="ownQ">
     <label class="small"><input type="checkbox" data-act="toggleUsedOnly" ${u.ownUsedOnlyV2 ? 'checked' : ''}> 덱에 쓰이는 것만</label>
   </div>
@@ -1024,12 +1064,12 @@ function viewOwn() {
   const chip = e => {
     const n = tCount(a, e.key);
     const tip = [e.ttype, e.trait, e.tseason].filter(Boolean).join(' · ') + (e.aliases ? `\n다른 자료 표기: ${[...e.aliases].join(', ')}` : '');
-    return `<button class="chip ${n ? 'on' : ''} ${n > 1 ? 'two' : ''} ${e.used ? '' : 'dim'}" data-act="tac" data-k="${esc(e.key)}"${tip ? ` title="${esc(tip)}"` : ''}>${esc(e.name)}${e.aliases ? '<span class="n">*</span>' : ''}${n ? `<span class="st">${(a.tstars || {})[e.key] || 0}돌</span>` : ''}${n > 1 ? '<span class="st">×2</span>' : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
+    return `<button class="chip ${n ? 'on' : ''} ${n > 1 ? 'two' : ''} ${e.used ? '' : 'dim'}" data-act="tac" data-k="${esc(e.key)}"${tip ? ` title="${esc(tip)}"` : ''}>${esc(e.name)}${e.aliases ? '<span class="n">*</span>' : ''}${n > 1 ? '<span class="st">×2</span>' : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
   };
   const TYPES = ['지휘', '액티브', '패시브', '추격'];
   const tparts = [...TYPES.map(t => section(`${t} 전법`, tacs.filter(e => e.ttype === t), e => tCount(a, e.key) > 0, chip)),
     section('유형 미확인', tacs.filter(e => !TYPES.includes(e.ttype)), e => tCount(a, e.key) > 0, chip)].join('');
-  return head + sortBar + `<p class="small muted"><b>돌</b> 모드: 칩을 누를 때마다 <b>미보유 → 0돌 → 1돌 → … → 5돌 → 미보유</b>로 바뀝니다. <b>영본 개수</b> 모드: 누를 때마다 1개 ↔ 2개(영본)로 바뀝니다. 공존덱처럼 같은 전법을 두 부대에 쓰려면 2개가 필요합니다. 유형별(지휘·액티브·패시브·추격)로 나눠 보여주고, 오른쪽 숫자는 그 전법이 쓰이는 덱 수입니다. 칩에 마우스를 올리면 특성·등장 시즌이 보입니다. 기본으로 S1~S3 전체 전법이 나오고, <b>덱에 쓰이는 것만</b>을 켜면 추천 덱에 나오는 전법만 보입니다(흐린 칩 = 덱에 안 쓰임).</p>
+  return head + sortBar + `<p class="small muted"><b>보유</b> 모드: 칩을 누르면 보유/해제됩니다(덱 판정은 전법 유무만 봅니다). <b>영본 개수</b> 모드: 누를 때마다 1개 ↔ 2개(영본)로 바뀝니다. 공존덱처럼 같은 전법을 두 부대에 쓰려면 2개가 필요합니다. 유형별(지휘·액티브·패시브·추격)로 나눠 보여주고, 오른쪽 숫자는 그 전법이 쓰이는 덱 수입니다. 칩에 마우스를 올리면 특성·등장 시즌이 보입니다. 기본으로 S1~S3 전체 전법이 나오고, <b>덱에 쓰이는 것만</b>을 켜면 추천 덱에 나오는 전법만 보입니다(흐린 칩 = 덱에 안 쓰임).</p>
     ${tparts || '<div class="empty">표시할 전법이 없습니다.</div>'}
     <div class="bar" style="margin-top:14px"><input type="text" list="dlTactics" id="newTac" placeholder="목록에 없는 전법 직접 추가"><button class="btn" data-act="addTac">추가</button></div>`;
 }
@@ -1072,7 +1112,7 @@ function viewLineup() {
     };
     return `<div class="card"><div class="card-h"><h3>${esc(a.name)}</h3><span class="small muted">${decks.length}/${a.squads} 부대</span></div>
       <div class="bar" style="margin:8px 0 0">
-        ${serverSelect(a, i)}
+        ${serverSelect(a, i)} ${breakSelect(a, i)}
         <label class="small">부대 수 <select data-act-input="squads" data-a="${i}">${[1, 2, 3, 4, 5].map(n => `<option ${a.squads === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
         <button class="btn small primary" data-act="auto" data-a="${i}">자동 추천 편성</button>
         <button class="btn small" data-act="luClear" data-a="${i}">비우기</button>
@@ -1097,7 +1137,9 @@ function viewCoexist() {
     const rows = state.accounts.map((a, ai) => {
       const pick = presetPick(p, a);
       const ok = pick.length >= p.need;
-      return `<div class="row" style="display:flex;justify-content:space-between;gap:6px;margin-top:4px"><span>${esc(a.name)}</span><span class="status ${ok ? 'ok' : pick.length ? 'tactic' : 'general'}">${pick.length}/${p.need} 가능</span>
+      const pf = breakFit({ group: p.name }, a);
+      const fitTag = !pf.bt || pf.bt === 'all' ? '' : `<span class="tag brk ${pf.fit || ''}" title="${esc(a.name)} 돌파 수준: ${BREAK_LABEL[breakInfo(a).level] || '미정'}">${pf.fit === 'warn' ? '고돌용 ⚠' : pf.fit === 'good' ? '수준 맞음 ✓' : ''}</span>`;
+      return `<div class="row" style="display:flex;justify-content:space-between;gap:6px;margin-top:4px"><span>${esc(a.name)} ${fitTag}</span><span class="status ${ok ? 'ok' : pick.length ? 'tactic' : 'general'}">${pick.length}/${p.need} 가능</span>
         ${ok ? `<button class="btn small" data-act="applyPreset" data-p="${pi}" data-a="${ai}">편성에 적용</button>` : ''}</div>`;
     }).join('');
     return `<div class="card"><h3 style="margin:0 0 4px;font-size:15px">${esc(p.name)}</h3><div class="small muted">${esc(p.src)} · 필요 ${p.need}부대${p.choose ? ` (덱 ${p.decks.length}개 중 선택)` : ''}</div>
@@ -1278,12 +1320,9 @@ document.addEventListener('click', e => {
       break;
     }
     case 'tac': {
-      const k = b.dataset.k, n = a.tactics[k] || 0, ts = (a.tstars = a.tstars || {});
-      if (state.ui.ownTacMode === 'copies') { a.tactics[k] = n === 1 ? 2 : 1; if (ts[k] == null) ts[k] = 0; break; }
-      // 돌: 미보유 → 0돌 → 1 … 5돌 → 미보유 (영본 개수는 그대로)
-      if (!n) { a.tactics[k] = 1; ts[k] = 0; }
-      else if ((ts[k] || 0) < MAX_STARS) ts[k] = (ts[k] || 0) + 1;
-      else { delete a.tactics[k]; delete ts[k]; }
+      const k = b.dataset.k, n = a.tactics[k] || 0;
+      if (state.ui.ownTacMode === 'copies') { a.tactics[k] = n === 1 ? 2 : 1; break; }   // 영본: 1개 ↔ 2개
+      if (n) delete a.tactics[k]; else a.tactics[k] = 1;                                // 보유 ↔ 미보유
       break;
     }
     case 'addTac': { const v = $('#newTac').value.trim(); if (!v) return; const ent = reg(T, v); a.tactics[ent.key] = 1; ent.fixed = true; break; }
@@ -1381,6 +1420,7 @@ document.addEventListener('change', e => {
   const a = acct();
   if (A === 'rename') { a.name = t.value.trim() || a.name; }
   else if (A === 'squads') { state.accounts[+t.dataset.a].squads = +t.value; }
+  else if (A === 'breakLevel') { state.accounts[+t.dataset.a].breakLevel = t.value; }
   else if (A === 'server') { state.accounts[+t.dataset.a].server = t.value; toast(`${state.accounts[+t.dataset.a].name}: ${t.value === 'rural' ? '시골섭 완화 조건으로 판정' : '일반 조건으로 판정'}`); }
   else if (A === 'copyFrom' && t.value !== '') {
     const src = state.accounts[+t.value];
