@@ -91,6 +91,10 @@ const Cloud = (() => {
       const j = await r.json();
       return { data: JSON.parse(b64d(j.content)), sha: j.sha };
     }
+    // 토큰 없이 읽기: GitHub API(최신본, IP당 시간 60회)를 먼저 쓰고, 한도에 걸리면 raw 파일(최대 5분 늦을 수 있음)로 대신 읽습니다.
+    const a = await fetch(api(`/contents/${encodeURIComponent(cfg.path)}?ref=${encodeURIComponent(cfg.branch)}`), { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' }).catch(() => null);
+    if (a && a.status === 404) return { data: null, sha: null };
+    if (a && a.ok) { const j = await a.json(); return { data: JSON.parse(b64d(j.content)), sha: undefined }; }
     const r = await fetch(`https://raw.githubusercontent.com/${cfg.repo}/${cfg.branch}/${cfg.path}?t=${Date.now()}`, { cache: 'no-store' });
     if (r.status === 404) return { data: null, sha: null };
     if (!r.ok) throw new Error(`읽기 실패 (${r.status})`);
