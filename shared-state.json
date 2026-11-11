@@ -498,6 +498,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "황충": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -536,6 +541,6 @@
    }
   ]
  },
- "rev": 140,
- "savedAt": "2026-11-11T14:07:25.295Z"
+ "rev": 141,
+ "savedAt": "2026-11-11T14:07:27.988Z"
 }
