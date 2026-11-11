@@ -108,6 +108,26 @@
      "owned": true,
      "stars": 2,
      "grade": 0
+    },
+    "가후": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "장합": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "정욱": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
+    },
+    "조인": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -154,6 +174,6 @@
    }
   ]
  },
- "rev": 11,
- "savedAt": "2026-11-11T13:36:00.168Z"
+ "rev": 12,
+ "savedAt": "2026-11-11T13:36:10.245Z"
 }
