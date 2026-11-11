@@ -573,6 +573,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "서서": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -611,6 +616,6 @@
    }
   ]
  },
- "rev": 154,
- "savedAt": "2026-11-11T14:08:19.019Z"
+ "rev": 155,
+ "savedAt": "2026-11-11T14:08:24.248Z"
 }
