@@ -588,6 +588,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "손책": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -626,6 +631,6 @@
    }
   ]
  },
- "rev": 157,
- "savedAt": "2026-11-11T14:08:30.178Z"
+ "rev": 158,
+ "savedAt": "2026-11-11T14:08:37.726Z"
 }
