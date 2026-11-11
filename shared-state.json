@@ -593,6 +593,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "소교": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -631,6 +636,6 @@
    }
   ]
  },
- "rev": 158,
- "savedAt": "2026-11-11T14:08:37.726Z"
+ "rev": 159,
+ "savedAt": "2026-11-11T14:08:41.784Z"
 }
