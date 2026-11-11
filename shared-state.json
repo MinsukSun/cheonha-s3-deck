@@ -31,7 +31,7 @@
     },
     "대교": {
      "owned": true,
-     "stars": 1,
+     "stars": 0,
      "grade": 0
     },
     "마초": {
@@ -163,6 +163,21 @@
      "owned": true,
      "stars": 1,
      "grade": 0
+    },
+    "소교": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "손상향": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "손책": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -209,6 +224,6 @@
    }
   ]
  },
- "rev": 15,
- "savedAt": "2026-11-11T13:36:49.036Z"
+ "rev": 16,
+ "savedAt": "2026-11-11T13:36:55.032Z"
 }
