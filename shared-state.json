@@ -478,6 +478,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "방덕": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -516,6 +521,6 @@
    }
   ]
  },
- "rev": 136,
- "savedAt": "2026-11-11T14:07:04.767Z"
+ "rev": 137,
+ "savedAt": "2026-11-11T14:07:09.320Z"
 }
