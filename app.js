@@ -520,6 +520,7 @@ function buildData() {
     if (r) s.reqRural[k] = { s: Math.min(r.s, s.req[k].s), p: Math.min(r.p, s.req[k].p) };
   })));
   DECKS = decks;
+  buildSubData();
   // 공존 프리셋
   COEXIST = [];
   const groups = {};
@@ -601,6 +602,110 @@ function breakSelect(a, i) {
     <select data-act-input="breakLevel" data-a="${i}"><option value="auto">${autoTxt}</option>${['low', 'mid', 'high'].map(v => `<option value="${v}" ${a.breakLevel === v ? 'selected' : ''}>${BREAK_LABEL[v]}</option>`).join('')}</select></label>`;
 }
 
+// ───────────────────────── 대체 무장·전법 추천 ─────────────────────────
+// 근거 1) 실제 교체 사례: 다른 두 무장이 같은 덱끼리 남은 한 자리의 무장 / 시트의 'A/B' 대체안 / 같은 무장 조합에서 같은 자리 전법이 다른 경우
+// 근거 2) 역할 유사도: 무장은 고유전법 유형·특성, 병종, 위치, 진영, 고유전법 효과 태그 / 전법은 유형·특성, 효과 태그
+const subG = new Map(), subT = new Map();
+const bump = (m, a, b, w) => { if (a === b) return; const x = m.get(a) || new Map(); x.set(b, (x.get(b) || 0) + w); m.set(a, x); };
+const TAG_RULES = [['병기피해', /병기(와 책략)? 피해|병기 피해/], ['책략피해', /책략(과 병기)? 피해|책략 피해/], ['회복', /회복|치유/], ['피해감소', /받는[\s\S]{0,24}피해[\s\S]{0,16}감소|방어 ?1스택|1스택의 방어/],
+  ['피해증가', /주는[\s\S]{0,10}피해가[\s\S]{0,12}증가|피해 계수가[\s\S]{0,8}증가/], ['적약화', /적군[\s\S]{0,30}(주는[\s\S]{0,12}피해|무력|지력|통솔|선공)[\s\S]{0,20}감소|탈취/], ['제어', /혼란|침묵|무장 해제|공포|제어 상태/],
+  ['상태부여', /화공|홍수|군량 고갈|폭풍|요술|허약|위협/], ['전체', /전체 적군|적군 전체|전체 아군/], ['2명', /2명|2~3명/], ['단일', /단일 목표/], ['조롱', /조롱/], ['반격', /반격/], ['연타', /연타/],
+  ['회심묘책', /회심|묘책/], ['선공', /선공/], ['준비', /준비 후/], ['초반', /전투 시작|첫 3턴|3턴 동안|4턴 동안/], ['액티브강화', /액티브 전법 발동률|액티브 전법 피해/], ['일반공격', /일반 공격 후|일반 공격 성공/], ['해제', /디버프 상태[\s\S]{0,6}제거/]];
+const descTags = t => new Set(TAG_RULES.filter(([, re]) => re.test(t || '')).map(([n]) => n));
+const jacc = (A, B) => { if (!A || !B || !A.size || !B.size) return 0; let n = 0; A.forEach(x => B.has(x) && n++); return n / (A.size + B.size - n); };
+function buildSubData() {
+  subG.clear(); subT.clear();
+  for (const [n, fac, troop, pos] of window.GENERAL_ATTRS || []) { const e = G.get(key(n)); if (e) Object.assign(e, { fac, troop, pos }); }
+  for (const e of G.values()) e.tags = descTags(e.desc);
+  for (const [n, tg] of window.TACTIC_TAGS || []) { const e = T.get((window.TACTIC_ALIASES || {})[key(n)] || key(n)); if (e) e.tags = new Set(tg.split(/\s+/).filter(Boolean)); }
+  const real = DECKS.filter(d => d.kind !== 'community' && d.kind !== 'custom');
+  for (const d of real) for (const sl of d.slots) {
+    if (sl.gen) for (const x of sl.gen.opts) for (const y of sl.gen.opts) bump(subG, x, y, 2);          // '손권 / 대교'
+    for (const t of sl.tactics) for (const x of t.opts) for (const y of t.opts) bump(subT, x, y, 2);   // '결사의 다짐/기선제압'
+  }
+  const main = d => d.slots.map(sl => (sl.gen ? sl.gen.opts[0] : ''));
+  for (let i = 0; i < real.length; i++) for (let j = i + 1; j < real.length; j++) {
+    const A = main(real[i]), B = main(real[j]);
+    const onlyA = A.filter(x => x && !B.includes(x)), onlyB = B.filter(x => x && !A.includes(x));
+    if (onlyA.length === 1 && onlyB.length === 1) { bump(subG, onlyA[0], onlyB[0], 1); bump(subG, onlyB[0], onlyA[0], 1); }
+    if (onlyA.length === 0 && onlyB.length === 0) {
+      // 같은 무장 조합: 같은 무장 자리에서 서로 다른 전법 = 교체 사례
+      real[i].slots.forEach(si => { const sj = real[j].slots.find(x => x.gen && si.gen && x.gen.opts[0] === si.gen.opts[0]); if (!sj) return;
+        const ti = si.tactics.flatMap(t => t.opts), tj = sj.tactics.flatMap(t => t.opts);
+        const oi = ti.filter(x => !tj.includes(x)), oj = tj.filter(x => !ti.includes(x));
+        if (oi.length === 1 && oj.length === 1) { bump(subT, oi[0], oj[0], 1); bump(subT, oj[0], oi[0], 1); } });
+    }
+  }
+}
+// 직업(병참·청낭·천공·진군·기좌·신행)은 조사 결과 전투 속성·전법·병종·치유율을 바꾸지 않고 사망률·예비병·공성치·이동 같은 맵 효과만 있어 대체 점수에 넣지 않습니다.
+function genSubs(a, missKey, deck, used) {
+  const X = G.get(missKey); if (!X) return [];
+  const emp = subG.get(missKey) || new Map();
+  const out = [];
+  for (const Y of G.values()) {
+    if (Y.key === missKey || !ownsG(a, Y.key) || used.has(Y.key) || (Y.season || 0) > MAX_SEASON) continue;
+    const why = []; let sc = 0;
+    const e = emp.get(Y.key) || 0; if (e) { sc += 3 * Math.min(e, 3); why.push(`실제 교체 사례 ${e}`); }
+    if (X.cat && Y.cat === X.cat) { sc += 2.5; why.push(`같은 ${X.cat}형`); }
+    if (X.type && Y.type === X.type) { sc += 1.5; why.push(`고유 ${X.type}`); }
+    if (X.troop && Y.troop === X.troop && X.troop !== '—') { sc += 1; why.push(X.troop); }
+    if (X.pos && Y.pos === X.pos && X.pos !== '—') { sc += 1; why.push(X.pos); }
+    if (X.fac && Y.fac === X.fac) { sc += 0.5; }
+    const js = jacc(X.tags, Y.tags); if (js > 0.3) { sc += js * 2; why.push('비슷한 효과'); }
+    if (sc >= 3) out.push({ key: Y.key, name: Y.name, sc, why, stars: starsOf(a, Y.key) });
+  }
+  return out.sort((x, y) => y.sc - x.sc || y.stars - x.stars).slice(0, 3);
+}
+function tacSubs(a, missOpts, usedT) {
+  const X = T.get(missOpts[0]); if (!X) return [];
+  const emp = new Map(); missOpts.forEach(k => (subT.get(k) || new Map()).forEach((v, y) => emp.set(y, (emp.get(y) || 0) + v)));
+  const out = [];
+  for (const Y of T.values()) {
+    if (missOpts.includes(Y.key) || tCount(a, Y.key) <= (usedT[Y.key] || 0)) continue;
+    const why = []; let sc = 0;
+    const e = emp.get(Y.key) || 0; if (e) { sc += 3 * Math.min(e, 3); why.push(`실제 교체 사례 ${e}`); }
+    if (X.ttype && Y.ttype === X.ttype) { sc += 2; why.push(X.ttype); }
+    if (X.trait && Y.trait === X.trait) { sc += 1.5; why.push(X.trait); }
+    const js = jacc(X.tags, Y.tags); if (js > 0) { sc += js * 3; if (js >= 0.4) why.push('비슷한 효과'); }
+    if (sc >= 3) out.push({ key: Y.key, name: Y.name, sc, why });
+  }
+  return out.sort((x, y) => y.sc - x.sc).slice(0, 3);
+}
+// 덱 하나에 대해 빠진 무장·전법별 대체 후보
+function deckSubs(d, a) {
+  const gUsed = new Set(d.slots.flatMap(sl => (sl.gen ? sl.gen.opts.filter(k => ownsG(a, k)).slice(0, 1) : [])));
+  const usedT = {}; d.slots.forEach(sl => sl.tactics.forEach(t => { const k = t.opts.find(x => tCount(a, x) > 0); if (k) usedT[k] = (usedT[k] || 0) + 1; }));
+  const gens = [], tacs = [];
+  d.slots.forEach((sl, si) => {
+    if (sl.gen && !sl.gen.opts.some(k => ownsG(a, k))) {
+      const list = genSubs(a, sl.gen.opts[0], d, gUsed);
+      gens.push({ si, miss: sl.gen.opts.map(gName).join('/'), list });
+      if (list[0]) gUsed.add(list[0].key);
+    }
+    sl.tactics.forEach((t, ti) => {
+      if (t.opts.some(k => tCount(a, k) > 0)) return;
+      const list = tacSubs(a, t.opts, usedT);
+      tacs.push({ si, ti, miss: t.opts.map(tName).join('/'), list });
+      if (list[0]) usedT[list[0].key] = (usedT[list[0].key] || 0) + 1;
+    });
+  });
+  return { gens, tacs };
+}
+// 대체안을 넣은 덱 사본 (자동 편성용). 대체 1개당 점수 감점.
+function subVariant(d, a) {
+  const S = deckSubs(d, a);
+  if (S.gens.length > 2 || S.gens.some(g => !g.list.length) || S.tacs.some(t => !t.list.length) || S.gens.length + S.tacs.length === 0 || S.tacs.length > 3) return null;
+  const subbed = new Set(S.gens.map(g => g.si));
+  // 대체한 자리의 돌 조건만 지우고, 나머지 자리의 조건(예: 마초 2돌)은 그대로 둠
+  const v = JSON.parse(JSON.stringify({ ...d, slots: d.slots.map((sl, si) => ({ ...sl, gen: sl.gen && { ...sl.gen }, tactics: sl.tactics.map(t => ({ ...t })), req: subbed.has(si) ? {} : sl.req, reqRural: subbed.has(si) ? {} : sl.reqRural })) }));
+  const notes = [];
+  S.gens.forEach(g => { v.slots[g.si].gen.opts = [g.list[0].key]; v.slots[g.si].gen.raw = g.list[0].name; notes.push(`${g.miss}→${g.list[0].name}`); });
+  S.tacs.forEach(t => { v.slots[t.si].tactics[t.ti].opts = [t.list[0].key]; notes.push(`${t.miss}→${t.list[0].name}`); });
+  v.id = `${d.id}~sub~${notes.join(',')}`; v.subOf = d.id; v.subNotes = notes; v.subPenalty = 2.5 * S.gens.length + 0.8 * S.tacs.length;   // 대체 무장 1명 −2.5, 전법 1개 −0.8
+  v.name = `${d.name} (대체)`;
+  return v;
+}
+
 // 덱 하나의 실제 구성 후보 (대체 무장/전법 조합)
 function realizations(d, a, cap = 48) {
   let list = [{ g: [], t: {} }];
@@ -628,7 +733,7 @@ function solve(cands, a, k, fixed = []) {
   const usedG = new Set(), usedT = {};
   const apply = (r, sign) => { r.g.forEach(x => sign > 0 ? usedG.add(x) : usedG.delete(x)); for (const [x, n] of Object.entries(r.t)) usedT[x] = (usedT[x] || 0) + sign * n; };
   for (const f of fixed) apply(f.r, 1);
-  const items = cands.map(d => ({ d, rs: realizations(d, a), s: tierScore(d) + fitBonus(d, a) })).filter(x => x.rs.length).sort((x, y) => y.s - x.s);
+  const items = cands.map(d => ({ d, rs: realizations(d, a), s: tierScore(d) + fitBonus(d, a) - (d.subPenalty || 0) })).filter(x => x.rs.length).sort((x, y) => y.s - x.s);
   let best = { n: -1, s: -1, pick: [] }, nodes = 0;
   const cur = [];
   const dfs = (i, n, s) => {
@@ -682,14 +787,18 @@ function deckCard(d, a, opts = {}) {
     ${rowsKeys.map(rk => `<tr><th>${esc(rk)}</th>${d.slots.map(s => `<td>${esc(s.rows[rk] || '')}</td>`).join('')}</tr>`).join('')}
   </table></details>` : '';
   const inLineup = a.lineup.includes(d.id);
+  const S = (ck.missG.length || ck.missT.length) && d.kind !== 'community' && Object.keys(a.generals).length ? deckSubs(d, a) : null;
+  const subTag = c => `<span class="tag sub" title="${esc(c.why.join(' · ') || '역할이 비슷함')}">${esc(c.name)}${c.stars != null && c.stars >= 0 ? ` ${c.stars}돌` : ''}</span>`;
+  const subLine = (label, arr) => arr.length ? `<div class="small subs"><b>${label}</b> ${arr.map(x => `<span class="miss">${esc(x.miss)}</span> → ${x.list.length ? x.list.map(subTag).join('') : '<span class="muted">보유 중 마땅한 대체 없음</span>'}`).join('<br>')}</div>` : '';
   const missLine = [
-    ck.missG.length ? `<div class="small miss">없는 무장: ${ck.missG.map(esc).join(', ')}</div>` : '',
-    ck.missT.length ? `<div class="small miss">없는 전법: ${ck.missT.map(m => esc(m.label)).join(', ')}</div>` : '',
+    ck.missG.length ? (S && S.gens.length ? subLine('없는 무장 · 대체 추천', S.gens) : `<div class="small miss">없는 무장: ${ck.missG.map(esc).join(', ')}</div>`) : '',
+    ck.missT.length ? (S && S.tacs.length ? subLine('없는 전법 · 대체 추천', S.tacs) : `<div class="small miss">없는 전법: ${ck.missT.map(m => esc(m.label)).join(', ')}</div>`) : '',
     ck.missS.length ? `<div class="small warn">돌파·품 부족: ${ck.missS.map(m => `${esc(m.label)} ${esc(m.have)} → ${esc(m.need)}`).join(', ')}</div>` : '',
   ].join('');
   return `<div class="card ${st}">
     <div class="card-h"><h3>${d.tierLabel ? `<span class="tier">${esc(d.tierLabel)}</span>` : ''}${esc(d.name)}</h3><span class="status ${st}">${d.unknownTactics && st === 'ok' ? '무장 보유' : STATUS_LABEL[st]}</span></div>
     <div><span class="tag">${esc(KIND_LABEL[d.kind] || d.kind)}</span>${(() => { const bf = breakFit(d, a), av = deckAvgStars(d, a); if (!bf.bt || bf.bt === 'all') return ''; const lab = bf.bt === 'high' ? '고돌 덱' : '명함·저돌 가능'; return `<span class="tag brk ${bf.fit || ''}" title="${bf.fit === 'warn' ? '고돌파 권장 덱인데 내 돌파 수준이 낮습니다' : '내 돌파 수준에 맞는 덱'}${av != null ? ` · 이 덱 무장 평균 ${av.toFixed(1)}돌` : ''}">${lab}${bf.fit === 'warn' ? ' ⚠' : bf.fit === 'good' ? ' ✓' : ''}</span>`; })()}${d.group ? `<span class="tag">${esc(d.group)}</span>` : ''}${d.choiceTag ? `<span class="tag">${esc(d.choiceTag)}</span>` : ''}${d.formation ? `<span class="tag">${esc(d.formation)}</span>` : ''}${d.url ? `<a class="tag" href="${esc(d.url)}" target="_blank" rel="noopener">출처</a>` : ''}</div>
+    ${d.subNotes ? `<div class="small warn">대체 구성: ${d.subNotes.map(esc).join(', ')}</div>` : ''}
     ${d.desc ? `<div class="desc">${esc(d.desc)}</div>` : ''}
     <div class="slots">${d.slots.map(slot).join('')}</div>
     ${missLine}
@@ -1075,7 +1184,12 @@ function viewOwn() {
 }
 
 // ───────────────────────── 렌더: 계정별 편성 ─────────────────────────
-function lineupDecks(a) { return a.lineup.map(id => DECKS.find(d => d.id === id)).filter(Boolean); }
+function findDeck(id, a) {
+  const d = DECKS.find(x => x.id === id); if (d) return d;
+  const i = id.indexOf('~sub~'); if (i < 0) return null;
+  const base = DECKS.find(x => x.id === id.slice(0, i)); return base ? subVariant(base, a) : null;   // 대체 구성은 저장하지 않고 다시 계산
+}
+function lineupDecks(a) { return a.lineup.map(id => findDeck(id, a)).filter(Boolean); }
 function lineupConflicts(a) {
   const decks = lineupDecks(a), useG = {}, useT = {};
   // 실제 사용할 구성: 앞에서부터 가능한 대체안을 고름
@@ -1115,6 +1229,7 @@ function viewLineup() {
         ${serverSelect(a, i)} ${breakSelect(a, i)}
         <label class="small">부대 수 <select data-act-input="squads" data-a="${i}">${[1, 2, 3, 4, 5].map(n => `<option ${a.squads === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
         <button class="btn small primary" data-act="auto" data-a="${i}">자동 추천 편성</button>
+        <label class="small" title="무장 2명·전법 3개까지 없으면 보유한 대체 무장·전법으로 바꾼 구성도 고려합니다(원래 덱보다 낮은 점수)"><input type="checkbox" data-act="toggleSub" data-a="${i}" ${a.allowSub !== false ? 'checked' : ''}> 대체 허용</label>
         <button class="btn small" data-act="luClear" data-a="${i}">비우기</button>
       </div>
       ${decks.length ? decks.map(item).join('') : '<div class="empty small">편성이 비어 있습니다.<br>자동 추천을 누르거나 추천 덱 탭에서 추가하세요.</div>'}
@@ -1309,6 +1424,7 @@ document.addEventListener('click', e => {
   switch (A) {
     case 'acct': state.active = +b.dataset.i; break;
     case 'set': state.ui[b.dataset.k] = b.dataset.v; break;
+    case 'toggleSub': ai.allowSub = b.checked; break;
     case 'toggleUsedOnly': state.ui.ownUsedOnlyV2 = b.checked; break;
     case 'gen': {
       const k = b.dataset.k, g = a.generals[k];
@@ -1333,7 +1449,9 @@ document.addEventListener('click', e => {
     case 'luUp': { const i = ai.lineup.indexOf(b.dataset.id); if (i > 0) [ai.lineup[i - 1], ai.lineup[i]] = [ai.lineup[i], ai.lineup[i - 1]]; break; }
     case 'luClear': ai.lineup = []; break;
     case 'auto': {
-      const cands = DECKS.filter(d => ['tier', 'variant', 'coexist', 'simple', 'custom', 'research'].includes(d.kind));
+      let cands = DECKS.filter(d => ['tier', 'variant', 'coexist', 'simple', 'custom', 'research'].includes(d.kind));
+      // 대체 허용: 무장 2명·전법 3개까지 빠진 덱은 대체 구성 사본도 후보에 넣음 (점수 감점)
+      if (ai.allowSub !== false) cands = cands.concat(cands.filter(d => check(d, ai).status === 'general' || check(d, ai).status === 'tactic').map(d => subVariant(d, ai)).filter(Boolean));
       const pick = solve(cands, ai, ai.squads);
       ai.lineup = pick.map(p => p.d.id);
       toast(pick.length ? `${ai.name}: ${pick.length}부대 편성` : `${ai.name}: 지금 보유로 만들 수 있는 덱이 없습니다`);

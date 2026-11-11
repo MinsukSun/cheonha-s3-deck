@@ -125,3 +125,5 @@ body.locked .top, body.locked .tabs, body.locked main { visibility: hidden; }
 .ocr-raw { white-space: pre-wrap; max-height: 200px; overflow: auto; background: var(--bg); padding: 6px; border-radius: 6px; }
 .tag.brk.good { background: var(--ok-bg); color: var(--ok); }
 .tag.brk.warn { background: var(--warn-bg); color: var(--warn); }
+.tag.sub { background: var(--ok-bg); color: var(--ok); cursor: help; }
+.subs { margin-top: 4px; line-height: 1.9; }
