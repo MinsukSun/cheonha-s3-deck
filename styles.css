@@ -107,3 +107,8 @@ body.locked .top, body.locked .tabs, body.locked main { visibility: hidden; }
 .gate-box strong { font-size: 17px; }
 .gate-box p { margin: 0; }
 .gate-box input[type=password] { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 16px; }
+.top-r { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cloud { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--chip); color: var(--muted); white-space: nowrap; }
+.cloud[data-s="ok"] { background: var(--ok-bg); color: var(--ok); }
+.cloud[data-s="pending"], .cloud[data-s="sync"], .cloud[data-s="readonly"], .cloud[data-s="empty"] { background: var(--warn-bg); color: var(--warn); }
+.cloud[data-s="error"] { background: var(--bad-bg); color: var(--bad); }

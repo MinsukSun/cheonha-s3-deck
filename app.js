@@ -55,8 +55,158 @@ function clampAccounts() {
   }
 }
 clampAccounts();
-const persist = () => save(LS_STATE, state);
+const persist = () => { save(LS_STATE, state); Cloud.onLocalChange(); };
 const acct = () => state.accounts[state.active] || state.accounts[0];
+
+// ───────────────────────── 공유 저장소 (GitHub 저장소의 JSON 파일) ─────────────────────────
+// 계정 보유·편성, 내 덱, 시트 설정을 GitHub 저장소의 파일 하나에 저장해 여러 기기·사람이 같이 씁니다.
+// - 읽기: 토큰 없이도 가능 (공개 저장소 raw 파일)
+// - 저장: 저장소 Contents 쓰기 권한이 있는 GitHub 토큰이 기기마다 한 번 필요 (이 브라우저에만 보관)
+// - 사이트(main 브랜치)가 저장할 때마다 다시 빌드되지 않도록 'data' 브랜치에 저장합니다.
+// - 두 사람이 동시에 저장하면, 서버의 최신본을 받은 뒤 내가 바꾼 계정만 덮어써서 다시 저장합니다.
+const LS_CLOUD = 'tk3-cloud-v1', LS_CLOUD_META = 'tk3-cloud-meta-v1';
+const DEFAULT_CLOUD = { repo: 'MinsukSun/cheonha-s3-deck', branch: 'data', path: 'shared-state.json', token: '', enabled: true };
+const Cloud = (() => {
+  let cfg = Object.assign({}, DEFAULT_CLOUD, load(LS_CLOUD, {}));
+  let meta = load(LS_CLOUD_META, { sha: null, base: null, at: null });   // base: 마지막으로 서버와 맞춘 공유 데이터
+  let status = 'idle', detail = '', timer = null, busy = false, again = false;
+  const shared = s => ({ accounts: s.accounts, customDecks: s.customDecks || [], sheet: s.sheet });
+  const sj = o => JSON.stringify(o);
+  const api = p => `https://api.github.com/repos/${cfg.repo}${p}`;
+  const hdr = () => ({ Accept: 'application/vnd.github+json', ...(cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {}) });
+  const b64e = str => { const b = new TextEncoder().encode(str); let s = ''; b.forEach(x => (s += String.fromCharCode(x))); return btoa(s); };
+  const b64d = b64 => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, '')), c => c.charCodeAt(0)));
+  function setStatus(s, d = '') { status = s; detail = d; paintStatus(); }
+  function saveCfg() { save(LS_CLOUD, cfg); }
+  function saveMeta() { save(LS_CLOUD_META, meta); }
+  const canWrite = () => cfg.enabled && !!cfg.token && !!cfg.repo;
+
+  async function fetchRemote() {
+    if (cfg.token) {
+      const r = await fetch(api(`/contents/${encodeURIComponent(cfg.path)}?ref=${encodeURIComponent(cfg.branch)}`), { headers: hdr(), cache: 'no-store' });
+      if (r.status === 404) return { data: null, sha: null };
+      if (!r.ok) throw new Error(`읽기 실패 (${r.status})`);
+      const j = await r.json();
+      return { data: JSON.parse(b64d(j.content)), sha: j.sha };
+    }
+    const r = await fetch(`https://raw.githubusercontent.com/${cfg.repo}/${cfg.branch}/${cfg.path}?t=${Date.now()}`, { cache: 'no-store' });
+    if (r.status === 404) return { data: null, sha: null };
+    if (!r.ok) throw new Error(`읽기 실패 (${r.status})`);
+    return { data: await r.json(), sha: undefined };
+  }
+  async function ensureBranch() {
+    const r = await fetch(api(`/git/ref/heads/${encodeURIComponent(cfg.branch)}`), { headers: hdr(), cache: 'no-store' });
+    if (r.ok) return;
+    if (r.status !== 404) throw new Error(`브랜치 확인 실패 (${r.status})`);
+    const info = await (await fetch(api(''), { headers: hdr() })).json();
+    const base = await (await fetch(api(`/git/ref/heads/${info.default_branch}`), { headers: hdr() })).json();
+    const c = await fetch(api('/git/refs'), { method: 'POST', headers: hdr(), body: sj({ ref: `refs/heads/${cfg.branch}`, sha: base.object.sha }) });
+    if (!c.ok) throw new Error(`브랜치 만들기 실패 (${c.status})`);
+  }
+  async function putRemote(data, sha) {
+    const body = { message: `덱 관리 데이터 저장 (${new Date().toLocaleString('ko-KR')})`, content: b64e(JSON.stringify(data, null, 1)), branch: cfg.branch };
+    if (sha) body.sha = sha;
+    const r = await fetch(api(`/contents/${encodeURIComponent(cfg.path)}`), { method: 'PUT', headers: hdr(), body: sj(body) });
+    if (r.status === 409 || r.status === 422) return { conflict: true };
+    if (r.status === 401 || r.status === 403) throw new Error('토큰 권한이 없습니다 (Contents 읽기·쓰기 필요)');
+    if (!r.ok) throw new Error(`저장 실패 (${r.status})`);
+    const j = await r.json();
+    return { sha: j.content.sha };
+  }
+  // 서버 최신본(remote)에 내가 바꾼 부분만 얹기
+  function merge(remote, local, base) {
+    const out = JSON.parse(sj(remote));
+    const baseAcc = new Map((base?.accounts || []).map(a => [a.id, sj(a)]));
+    local.accounts.forEach((a, i) => {
+      if (baseAcc.get(a.id) === sj(a)) return;                 // 내가 안 바꾼 계정은 서버 것 유지
+      const j = out.accounts.findIndex(x => x.id === a.id);
+      if (j >= 0) out.accounts[j] = a; else if (out.accounts.length < ACCOUNT_NAMES.length) out.accounts.splice(i, 0, a);
+    });
+    if (sj(local.customDecks) !== sj(base?.customDecks || [])) out.customDecks = local.customDecks;
+    if (sj(local.sheet) !== sj(base?.sheet)) out.sheet = local.sheet;
+    return out;
+  }
+  function applyShared(data) {
+    state.accounts = data.accounts; state.customDecks = data.customDecks || []; if (data.sheet) state.sheet = data.sheet;
+    normalizeAccounts(); clampAccounts(); save(LS_STATE, state);
+  }
+  const dirty = () => meta.base == null || sj(shared(state)) !== sj(meta.base);
+
+  // 서버에서 받아오기. 내 변경이 없으면 서버 것으로 바꾸고, 있으면 합쳐서 저장합니다.
+  async function pull(opts = {}) {
+    if (!cfg.enabled || !cfg.repo) return setStatus('off');
+    if (busy) { again = true; return; }
+    busy = true; setStatus('sync', '불러오는 중');
+    try {
+      const { data, sha } = await fetchRemote();
+      if (!data) {
+        if (canWrite()) { busy = false; return push(); }
+        setStatus('empty', '아직 공유 파일이 없습니다. 토큰을 넣으면 이 브라우저 데이터로 만듭니다.');
+      } else if (opts.adopt || !dirty() || !meta.base) {
+        const changed = sj(shared(state)) !== sj(data);
+        // 처음 연결할 때 이 브라우저에만 있던 데이터는 따로 보관 (데이터·설정 → 백업에서 복구 가능)
+        if (changed && !meta.base && state.accounts.some(a => Object.keys(a.generals).length || Object.keys(a.tactics).length)) save('tk3-state-before-cloud', state);
+        meta = { sha: sha ?? meta.sha, base: data, at: new Date().toISOString() }; saveMeta();
+        applyShared(data);
+        if (changed && typeof start._done !== 'undefined') { buildData(); render(); }
+        setStatus(canWrite() ? 'ok' : 'readonly');
+      } else if (canWrite()) {
+        const merged = merge(data, shared(state), meta.base);
+        meta = { sha, base: data, at: meta.at }; saveMeta();
+        applyShared(merged); buildData(); render();
+        busy = false; return push();
+      } else {
+        setStatus('readonly', '이 브라우저에 공유되지 않은 변경이 있습니다 (토큰 없음)');
+      }
+    } catch (e) { setStatus('error', e.message); }
+    busy = false;
+    if (again) { again = false; schedule(); }
+  }
+  async function push() {
+    if (!canWrite()) return setStatus(cfg.enabled ? 'readonly' : 'off');
+    if (busy) { again = true; return; }
+    busy = true; setStatus('sync', '저장 중');
+    try {
+      if (!meta.sha) await ensureBranch();
+      for (let tries = 0; tries < 3; tries++) {
+        const local = shared(state);
+        const res = await putRemote(local, meta.sha);
+        if (!res.conflict) { meta = { sha: res.sha, base: JSON.parse(sj(local)), at: new Date().toISOString() }; saveMeta(); setStatus('ok'); break; }
+        // 다른 곳에서 먼저 저장함 → 최신본에 내 변경만 얹어 다시 시도
+        const { data, sha } = await fetchRemote();
+        const merged = data ? merge(data, local, meta.base) : local;
+        meta = { sha, base: data, at: meta.at }; saveMeta();
+        applyShared(merged); buildData(); render();
+        setStatus('sync', '다른 기기의 변경과 합치는 중');
+        if (tries === 2) throw new Error('저장 충돌이 계속됩니다. 잠시 뒤 다시 시도하세요.');
+      }
+    } catch (e) { setStatus('error', e.message); }
+    busy = false;
+    if (again) { again = false; schedule(); }
+  }
+  function schedule() { clearTimeout(timer); timer = setTimeout(() => (dirty() ? push() : null), 1500); }
+  function onLocalChange() {
+    if (!cfg.enabled) return;
+    if (!dirty()) return;
+    if (canWrite()) { setStatus('pending', '저장 대기'); schedule(); } else setStatus('readonly', '이 브라우저에만 저장됨 (토큰 없음)');
+  }
+  const LABEL = { idle: '공유 확인 전', off: '공유 꺼짐 · 이 브라우저만', ok: '공유 저장됨', pending: '공유 저장 대기', sync: '공유 동기화 중', readonly: '공유 읽기 전용', empty: '공유 파일 없음', error: '공유 오류' };
+  function paintStatus() {
+    const el = document.getElementById('cloudStatus'); if (!el) return;
+    el.textContent = '☁ ' + LABEL[status]; el.title = detail || LABEL[status]; el.dataset.s = status;
+    const m = document.getElementById('cloudMsg'); if (m) m.textContent = `${LABEL[status]}${detail ? ' — ' + detail : ''}${meta.at ? ` · 마지막 동기화 ${new Date(meta.at).toLocaleString('ko-KR')}` : ''}`;
+  }
+  // 주기적·포커스 시 새로고침 (토큰 있으면 1분, 없으면 포커스 때만)
+  setInterval(() => { if (cfg.token && document.visibilityState === 'visible' && !dirty()) pull(); }, 60000);
+  window.addEventListener('focus', () => { if (cfg.enabled && !busy) pull(); });
+  return {
+    pull, push, onLocalChange, paintStatus,
+    get cfg() { return cfg; }, get status() { return status; },
+    setCfg(next) { cfg = Object.assign({}, cfg, next); saveCfg(); meta = { sha: null, base: null, at: null }; saveMeta(); },
+    uploadLocal: async () => { meta.base = { accounts: [] }; const { sha } = await fetchRemote().catch(() => ({})); meta.sha = sha || null; saveMeta(); return push(); },
+    adoptRemote: () => pull({ adopt: true }),
+  };
+})();
 
 let cache = load(LS_CACHE, null) || window.SHEET_CACHE || { tabs: [] };
 
@@ -610,6 +760,28 @@ function viewCoexist() {
 }
 
 // ───────────────────────── 렌더: 데이터·설정 ─────────────────────────
+function cloudSection() {
+  const c = Cloud.cfg;
+  return `<h2>공유 저장소 (여러 기기에서 같이 관리)</h2>
+  <div class="hint small">덕구·부계정의 보유 무장·전법, 편성, 내 덱, 시트 설정을 GitHub 저장소의 파일 하나(<code>${esc(c.repo)}</code>의 <code>${esc(c.branch)}</code> 브랜치 <code>${esc(c.path)}</code>)에 저장합니다.
+  <b>읽기</b>는 누구나 바로 되고, <b>저장</b>하려면 기기마다 한 번 GitHub 토큰을 넣어야 합니다. 토큰은 이 브라우저에만 보관됩니다.<br>
+  토큰 만들기: <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → Fine-grained token</a> → Repository access: <b>Only select repositories</b>에서 이 저장소만 선택 → Permissions → Contents: <b>Read and write</b> → Generate.<br>
+  저장소가 공개라서 공유 파일 내용(보유 무장·편성)도 공개됩니다.</div>
+  <div class="form-grid">
+    <div class="fld"><label>저장소 (아이디/이름)</label><input id="cRepo" value="${esc(c.repo)}"></div>
+    <div class="fld"><label>브랜치</label><input id="cBranch" value="${esc(c.branch)}"></div>
+    <div class="fld"><label>파일 경로</label><input id="cPath" value="${esc(c.path)}"></div>
+  </div>
+  <div class="fld"><label>GitHub 토큰 (저장할 때만 필요)</label><input id="cToken" type="password" autocomplete="off" value="${esc(c.token)}" placeholder="github_pat_..."></div>
+  <label class="small"><input type="checkbox" id="cOn" ${c.enabled ? 'checked' : ''}> 공유 저장소 사용</label>
+  <div class="bar" style="margin-top:8px">
+    <button class="btn primary" data-act="cloudSave">설정 저장 후 연결</button>
+    <button class="btn" data-act="cloudPull">지금 동기화</button>
+    <button class="btn" data-act="cloudAdopt">공유 내용으로 바꾸기</button>
+    <button class="btn" data-act="cloudUpload">이 브라우저 내용 올리기</button>
+  </div>
+  <p class="small muted" id="cloudMsg"></p>`;
+}
 function viewData() {
   const sh = state.sheet;
   const tabsRows = sh.tabs.map((t, i) => `<tr>
@@ -650,6 +822,7 @@ function viewData() {
     <button class="btn primary" data-act="addCustom">덱 추가</button>
   </div>
 
+  ${cloudSection()}
   <h2>백업 / 복원</h2>
   <div class="hint small">보유 정보와 편성은 이 브라우저에만 저장됩니다. 다른 기기로 옮기거나 백업하려면 내보내기 파일을 쓰세요.</div>
   <div class="bar">
@@ -676,6 +849,7 @@ function render() {
   $('#view').innerHTML = (VIEWS[state.ui.tab] || viewDecks)();
   if (focus) { const el = $(`[data-model="${focus}"]`); if (el) { el.focus(); try { el.setSelectionRange(caret, caret); } catch {} } }
   window.scrollTo(0, y);
+  Cloud.paintStatus();
 }
 
 // ───────────────────────── 시트 동기화 (JSONP) ─────────────────────────
@@ -772,13 +946,21 @@ document.addEventListener('click', e => {
     case 'delTab': state.sheet.tabs.splice(+b.dataset.i, 1); break;
     case 'resetSheet': state.sheet = JSON.parse(JSON.stringify(DEFAULT_SHEET)); break;
     case 'sync': return sync();
+    case 'cloudSave': {
+      Cloud.setCfg({ repo: $('#cRepo').value.trim(), branch: $('#cBranch').value.trim() || 'data', path: $('#cPath').value.trim() || 'shared-state.json',
+        token: $('#cToken').value.trim(), enabled: $('#cOn').checked });
+      toast('공유 설정을 저장했습니다'); render(); Cloud.pull(); return;
+    }
+    case 'cloudPull': Cloud.pull(); return;
+    case 'cloudAdopt': if (!confirm('이 브라우저의 보유·편성·내 덱을 공유 저장소의 내용으로 바꿉니다. 계속할까요?')) return; Cloud.adoptRemote(); return;
+    case 'cloudUpload': if (!confirm('공유 저장소의 내용을 이 브라우저의 보유·편성·내 덱으로 덮어씁니다. 다른 사람이 입력한 내용도 바뀝니다. 계속할까요?')) return; Cloud.uploadLocal(); return;
     case 'export': {
       const blob = new Blob([JSON.stringify({ app: 'tk3-deck', version: 1, state }, null, 1)], { type: 'application/json' });
       const l = document.createElement('a'); l.href = URL.createObjectURL(blob); l.download = `천하결전-덱관리-백업-${new Date().toISOString().slice(0, 10)}.json`; l.click(); return;
     }
     case 'exportCsv': return exportCsv();
     case 'lock': try { localStorage.removeItem(LS_AUTH); } catch {} location.reload(); return;
-    case 'resetAll': if (!confirm('모든 계정의 보유 정보, 편성, 내 덱을 지웁니다. 계속할까요?')) return;
+    case 'resetAll': if (!confirm(`모든 계정의 보유 정보, 편성, 내 덱을 지웁니다.${Cloud.cfg.token && Cloud.cfg.enabled ? ' 공유 저장소에도 반영되어 다른 기기에서도 지워집니다.' : ''} 계속할까요?`)) return;
       state = { accounts: ACCOUNT_NAMES.map((_, i) => newAccount(i)), active: 0, sheet: DEFAULT_SHEET, customDecks: [], ui: state.ui }; buildData(); break;
     default: return;
   }
@@ -867,7 +1049,7 @@ function showGate(onOk) {
 }
 
 // ───────────────────────── 시작 ─────────────────────────
-function start() { buildData(); render(); }
+function start() { start._done = true; buildData(); render(); Cloud.paintStatus(); Cloud.pull(); }
 if (isAuthed()) start(); else showGate(start);
 window.__tk3 = { get DECKS() { return DECKS; }, get COEXIST() { return COEXIST; }, G, T, check, solve, state: () => state };
 })();
