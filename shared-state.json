@@ -294,6 +294,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "연의조인": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {
@@ -830,6 +835,6 @@
    }
   ]
  },
- "rev": 240,
- "savedAt": "2026-11-11T14:39:32.073Z"
+ "rev": 241,
+ "savedAt": "2026-11-11T14:39:34.915Z"
 }
