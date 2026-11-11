@@ -44,7 +44,7 @@ function normalizeAccounts() {
   if (!(state.active < state.accounts.length)) state.active = 0;
 }
 normalizeAccounts();
-state.ui = Object.assign({ tab: 'decks', src: 'main', status: 'all', q: '', ownTab: 'generals', ownMode: 'own', ownQ: '', ownUsedOnlyV2: false, ownSort: 'name' }, state.ui || {});
+state.ui = Object.assign({ tab: 'decks', src: 'main', status: 'all', q: '', ownTab: 'generals', ownMode: 'stars', ownTacMode: 'stars', ownQ: '', ownUsedOnlyV2: false, ownSort: 'name' }, state.ui || {});
 state.sheet = state.sheet || DEFAULT_SHEET;
 state.customDecks = state.customDecks || [];
 // 저장된 값이나 불러온 백업에 최대보다 큰 값이 있으면 최대로 맞춥니다.
@@ -691,7 +691,7 @@ function viewDecks() {
     <div class="stat"><span class="small muted">보유 무장 / 전법</span><b>${ownedN} / ${tacN}</b></div>
   </div>
   <div class="hint small"><b>이것만 있으면 바로 열리는 덱</b> — 전법: ${top(unlockT)} &nbsp; 무장: ${top(unlockG)} &nbsp; 돌파·품: ${top(unlockS)}</div>
-  ${cnt.stars ? `<div class="hint small">일부 덱은 시트 설명에 돌파·승품 조건(예: 마운록 4돌 2품 이상)이 있습니다. <b>보유 관리</b>에서 <b>탭=돌파+1</b>, <b>탭=품+1</b>로 입력해야 정확히 판정됩니다. 입력하지 않은 무장은 0돌 0품으로 봅니다. 인구가 적은 서버라면 <b>서버: 시골섭 완화</b>를 고르면 시트에 적힌 완화 조건(예: 시골섭 3돌 1품)으로 판정합니다.</div>` : ''}
+  ${cnt.stars ? `<div class="hint small">일부 덱은 시트 설명에 돌파·승품 조건(예: 마운록 4돌 2품 이상)이 있습니다. <b>보유 관리</b>의 <b>돌파</b>·<b>품</b> 모드로 입력해야 정확히 판정됩니다. 입력하지 않은 무장은 0돌 0품으로 봅니다. 인구가 적은 서버라면 <b>서버: 시골섭 완화</b>를 고르면 시트에 적힌 완화 조건(예: 시골섭 3돌 1품)으로 판정합니다.</div>` : ''}
   <div class="bar">
     <input type="search" placeholder="덱·무장·전법 검색" value="${esc(u.q)}" data-model="q">
     ${serverSelect(a, state.active)}
@@ -984,7 +984,8 @@ function viewOwn() {
     <input type="text" value="${esc(a.name)}" data-act-input="rename" style="max-width:160px" title="계정 이름">
     ${serverSelect(a, state.active)}
     <div class="seg">${[['generals', '무장'], ['tactics', '전법']].map(([v, l]) => `<button data-act="set" data-k="ownTab" data-v="${v}" class="${u.ownTab === v ? 'on' : ''}">${l}</button>`).join('')}</div>
-    ${u.ownTab === 'generals' ? `<div class="seg">${[['own', '탭=보유'], ['stars', '탭=돌파+1'], ['grade', '탭=품+1']].map(([v, l]) => `<button data-act="set" data-k="ownMode" data-v="${v}" class="${u.ownMode === v ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}
+    ${u.ownTab === 'generals' ? `<div class="seg">${[['stars', '돌파'], ['grade', '품']].map(([v, l]) => `<button data-act="set" data-k="ownMode" data-v="${v}" class="${(u.ownMode === 'grade' ? 'grade' : 'stars') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`
+      : `<div class="seg">${[['stars', '돌'], ['copies', '영본 개수']].map(([v, l]) => `<button data-act="set" data-k="ownTacMode" data-v="${v}" class="${(u.ownTacMode || 'stars') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`}
     <input type="search" placeholder="이름 검색" value="${esc(u.ownQ)}" data-model="ownQ">
     <label class="small"><input type="checkbox" data-act="toggleUsedOnly" ${u.ownUsedOnlyV2 ? 'checked' : ''}> 덱에 쓰이는 것만</label>
   </div>
@@ -1009,13 +1010,13 @@ function viewOwn() {
     const chip = e => {
       const g = a.generals[e.key] || {};
       const tip = [e.season ? `시즌${e.season}` : '', e.skill, e.type, e.cat].filter(Boolean).join(' · ') + (e.desc ? '\n' + e.desc : '');
-      return `<button class="chip ${g.owned ? 'on' : ''} ${e.used ? '' : 'dim'}" data-act="gen" data-k="${esc(e.key)}" title="${esc(tip)}">${esc(e.name)}${g.owned && (g.stars || g.grade) ? `<span class="st">${reqText({ s: g.stars || 0, p: g.grade || 0 })}</span>` : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
+      return `<button class="chip ${g.owned ? 'on' : ''} ${e.used ? '' : 'dim'}" data-act="gen" data-k="${esc(e.key)}" title="${esc(tip)}">${esc(e.name)}${g.owned ? `<span class="st">${g.stars || 0}돌${g.grade ? ` ${g.grade}품` : ''}</span>` : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
     };
     // 시즌별 묶음: 연의 무장은 따로, 도감에 없는 무장은 '기타'
     const groupsDef = [['S3 연의 무장', e => /^연의/.test(e.key)], ['시즌3 무장', e => e.season === 3], ['시즌2 무장', e => e.season === 2], ['시즌1 무장', e => e.season === 1], ['기타 (도감 미등록)', () => true]];
     const left = new Set(gens);
     const parts = groupsDef.map(([lab, f]) => { const items = [...left].filter(f); items.forEach(x => left.delete(x)); return section(lab, items, e => ownsG(a, e.key), chip); }).join('');
-    return head + sortBar + `<p class="small muted">칩을 누르면 보유/해제됩니다. 시즌별로 나눠 보여주고, 각 묶음 안은 위에서 고른 순서(가나다순 또는 많이 쓰이는 순)입니다. 오른쪽 작은 숫자는 그 무장이 쓰이는 덱 수입니다. 돌파 수는 <b>탭=돌파+1</b>, 승품은 <b>탭=품+1</b>을 고른 뒤 누르면 하나씩 올라갑니다. 돌파는 최대 ${MAX_STARS}돌, 승품은 최대 ${MAX_GRADE}품이고, 최대 다음은 0으로 돌아갑니다. 칩에 마우스를 올리면 시즌·고유 전법이 보입니다.</p>` + (parts || '<div class="empty">표시할 무장이 없습니다.</div>');
+    return head + sortBar + `<p class="small muted"><b>돌파</b> 모드: 칩을 누를 때마다 <b>미보유 → 0돌 → 1돌 → … → 5돌 → 미보유</b>로 바뀝니다. <b>품</b> 모드: 누를 때마다 품이 0→5→0으로 바뀝니다(미보유면 0돌로 보유 처리). 시즌별로 나눠 보여주고, 각 묶음 안은 위에서 고른 순서입니다. 오른쪽 작은 숫자는 그 무장이 쓰이는 덱 수이고, 칩에 마우스를 올리면 시즌·고유 전법이 보입니다.</p>` + (parts || '<div class="empty">표시할 무장이 없습니다.</div>');
   }
   let tacs = [...T.values()];
   if (u.ownUsedOnlyV2) tacs = tacs.filter(e => e.used > 0 || tCount(a, e.key));
@@ -1023,12 +1024,12 @@ function viewOwn() {
   const chip = e => {
     const n = tCount(a, e.key);
     const tip = [e.ttype, e.trait, e.tseason].filter(Boolean).join(' · ') + (e.aliases ? `\n다른 자료 표기: ${[...e.aliases].join(', ')}` : '');
-    return `<button class="chip ${n ? 'on' : ''} ${n > 1 ? 'two' : ''} ${e.used ? '' : 'dim'}" data-act="tac" data-k="${esc(e.key)}"${tip ? ` title="${esc(tip)}"` : ''}>${esc(e.name)}${e.aliases ? '<span class="n">*</span>' : ''}${n && (a.tstars || {})[e.key] ? `<span class="st">${a.tstars[e.key]}돌</span>` : ''}${n > 1 ? '<span class="st">×2</span>' : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
+    return `<button class="chip ${n ? 'on' : ''} ${n > 1 ? 'two' : ''} ${e.used ? '' : 'dim'}" data-act="tac" data-k="${esc(e.key)}"${tip ? ` title="${esc(tip)}"` : ''}>${esc(e.name)}${e.aliases ? '<span class="n">*</span>' : ''}${n ? `<span class="st">${(a.tstars || {})[e.key] || 0}돌</span>` : ''}${n > 1 ? '<span class="st">×2</span>' : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
   };
   const TYPES = ['지휘', '액티브', '패시브', '추격'];
   const tparts = [...TYPES.map(t => section(`${t} 전법`, tacs.filter(e => e.ttype === t), e => tCount(a, e.key) > 0, chip)),
     section('유형 미확인', tacs.filter(e => !TYPES.includes(e.ttype)), e => tCount(a, e.key) > 0, chip)].join('');
-  return head + sortBar + `<p class="small muted">누를 때마다 <b>없음 → 1개 → 2개(영본) → 없음</b>으로 바뀝니다. 공존덱처럼 같은 전법을 두 부대에 쓰려면 2개가 필요합니다. 유형별(지휘·액티브·패시브·추격)로 나눠 보여주고, 오른쪽 숫자는 그 전법이 쓰이는 덱 수입니다. 칩에 마우스를 올리면 특성·등장 시즌이 보입니다. 기본으로 S1~S3 전체 전법이 나오고, <b>덱에 쓰이는 것만</b>을 켜면 추천 덱에 나오는 전법만 보입니다(흐린 칩 = 덱에 안 쓰임).</p>
+  return head + sortBar + `<p class="small muted"><b>돌</b> 모드: 칩을 누를 때마다 <b>미보유 → 0돌 → 1돌 → … → 5돌 → 미보유</b>로 바뀝니다. <b>영본 개수</b> 모드: 누를 때마다 1개 ↔ 2개(영본)로 바뀝니다. 공존덱처럼 같은 전법을 두 부대에 쓰려면 2개가 필요합니다. 유형별(지휘·액티브·패시브·추격)로 나눠 보여주고, 오른쪽 숫자는 그 전법이 쓰이는 덱 수입니다. 칩에 마우스를 올리면 특성·등장 시즌이 보입니다. 기본으로 S1~S3 전체 전법이 나오고, <b>덱에 쓰이는 것만</b>을 켜면 추천 덱에 나오는 전법만 보입니다(흐린 칩 = 덱에 안 쓰임).</p>
     ${tparts || '<div class="empty">표시할 전법이 없습니다.</div>'}
     <div class="bar" style="margin-top:14px"><input type="text" list="dlTactics" id="newTac" placeholder="목록에 없는 전법 직접 추가"><button class="btn" data-act="addTac">추가</button></div>`;
 }
@@ -1268,12 +1269,23 @@ document.addEventListener('click', e => {
     case 'set': state.ui[b.dataset.k] = b.dataset.v; break;
     case 'toggleUsedOnly': state.ui.ownUsedOnlyV2 = b.checked; break;
     case 'gen': {
-      const g = a.generals[b.dataset.k] || (a.generals[b.dataset.k] = { owned: false, stars: 0 });
-      if (state.ui.ownMode === 'stars') cycleStars(g); else if (state.ui.ownMode === 'grade') cycleGrade(g); else g.owned = !g.owned;
-      if (!g.owned) delete a.generals[b.dataset.k];
+      const k = b.dataset.k, g = a.generals[k];
+      if (state.ui.ownMode === 'grade') { const x = g && g.owned ? g : (a.generals[k] = { owned: true, stars: 0, grade: 0 }); cycleGrade(x); break; }
+      // 돌파: 미보유 → 0돌 → 1 … 5돌 → 미보유
+      if (!g || !g.owned) a.generals[k] = { owned: true, stars: 0, grade: (g && g.grade) || 0 };
+      else if ((g.stars || 0) < MAX_STARS) g.stars = (g.stars || 0) + 1;
+      else delete a.generals[k];
       break;
     }
-    case 'tac': { const k = b.dataset.k; const n = ((a.tactics[k] || 0) + 1) % 3; if (n) a.tactics[k] = n; else delete a.tactics[k]; break; }
+    case 'tac': {
+      const k = b.dataset.k, n = a.tactics[k] || 0, ts = (a.tstars = a.tstars || {});
+      if (state.ui.ownTacMode === 'copies') { a.tactics[k] = n === 1 ? 2 : 1; if (ts[k] == null) ts[k] = 0; break; }
+      // 돌: 미보유 → 0돌 → 1 … 5돌 → 미보유 (영본 개수는 그대로)
+      if (!n) { a.tactics[k] = 1; ts[k] = 0; }
+      else if ((ts[k] || 0) < MAX_STARS) ts[k] = (ts[k] || 0) + 1;
+      else { delete a.tactics[k]; delete ts[k]; }
+      break;
+    }
     case 'addTac': { const v = $('#newTac').value.trim(); if (!v) return; const ent = reg(T, v); a.tactics[ent.key] = 1; ent.fixed = true; break; }
     case 'clearOwn': if (!confirm(`${a.name}의 ${state.ui.ownTab === 'generals' ? '무장' : '전법'} 보유 표시를 모두 해제할까요?`)) return; if (state.ui.ownTab === 'generals') a.generals = {}; else a.tactics = {}; break;
     case 'bulkApply': return bulkApply();
