@@ -548,6 +548,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "안량": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -586,6 +591,6 @@
    }
   ]
  },
- "rev": 150,
- "savedAt": "2026-11-11T14:08:05.262Z"
+ "rev": 151,
+ "savedAt": "2026-11-11T14:08:08.203Z"
 }
