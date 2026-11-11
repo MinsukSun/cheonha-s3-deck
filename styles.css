@@ -112,3 +112,14 @@ body.locked .top, body.locked .tabs, body.locked main { visibility: hidden; }
 .cloud[data-s="ok"] { background: var(--ok-bg); color: var(--ok); }
 .cloud[data-s="pending"], .cloud[data-s="sync"], .cloud[data-s="readonly"], .cloud[data-s="empty"] { background: var(--warn-bg); color: var(--warn); }
 .cloud[data-s="error"] { background: var(--bad-bg); color: var(--bad); }
+.ocr { border-style: solid; }
+.ocr-body { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 12px; margin-top: 10px; }
+@media (max-width: 700px) { .ocr-body { grid-template-columns: 1fr; } }
+.ocr-img { width: 100%; border-radius: 8px; border: 1px solid var(--line); }
+.ocr-t { width: 100%; border-collapse: collapse; }
+.ocr-t th { text-align: left; font-size: 12px; color: var(--muted); padding: 8px 4px 4px; }
+.ocr-t td { padding: 3px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+.ocr-t tr.off td { opacity: .45; }
+.ocr-t select { padding: 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.ocr-line { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ocr-raw { white-space: pre-wrap; max-height: 200px; overflow: auto; background: var(--bg); padding: 6px; border-radius: 6px; }
