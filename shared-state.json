@@ -101,7 +101,7 @@
     },
     "서황": {
      "owned": true,
-     "stars": 1,
+     "stars": 0,
      "grade": 0
     },
     "하후연": {
@@ -127,6 +127,16 @@
     "조인": {
      "owned": true,
      "stars": 1,
+     "grade": 0
+    },
+    "장료": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "제갈량": {
+     "owned": true,
+     "stars": 0,
      "grade": 0
     }
    },
@@ -174,6 +184,6 @@
    }
   ]
  },
- "rev": 12,
- "savedAt": "2026-11-11T13:36:10.245Z"
+ "rev": 13,
+ "savedAt": "2026-11-11T13:36:32.036Z"
 }
