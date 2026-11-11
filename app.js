@@ -721,6 +721,7 @@ async function ocrPrep(blob) {
   const c = document.createElement('canvas'); c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
   const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(bmp, 0, 0, c.width, c.height);
   const im = x.getImageData(0, 0, c.width, c.height), d = im.data;
+  const color = new ImageData(new Uint8ClampedArray(d), c.width, c.height);   // 돌 그림 판별용 원본 색
   let sum = 0; for (let i = 0; i < d.length; i += 4) sum += (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
   const invert = sum / (d.length / 4) < 128;                 // 어두운 게임 화면 → 흰 글씨를 검은 글씨로
   for (let i = 0; i < d.length; i += 4) {
@@ -730,7 +731,7 @@ async function ocrPrep(blob) {
     d[i] = d[i + 1] = d[i + 2] = v;
   }
   x.putImageData(im, 0, 0);
-  return c;
+  return { canvas: c, color };
 }
 const ocrNorm = s => String(s).toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
 function lev(a, b) {
@@ -750,7 +751,67 @@ function ocrWords(data) {
   if (!lines.length && data.words) lines.push(data.words);
   return lines.filter(l => l.length);
 }
-function ocrMatch(data) {
+// 무장 카드: 이름 바로 위 띠에 있는 빨강·주황 돌 아이콘 개수를 셉니다. (아이콘 위쪽은 빨강, 아래는 주황)
+function iconStars(img, nb, hMed) {
+  // OCR 글자 상자가 위쪽 아이콘까지 삼켜 커지는 경우가 있어, 화면의 보통 글자 높이와 글자 아래쪽 끝을 기준으로 잡습니다.
+  const h = Math.max(10, hMed || (nb.y1 - nb.y0)), cx = (nb.x0 + nb.x1) / 2, top = nb.y1 - h;
+  const x0 = Math.max(0, Math.round(cx - h * 3.6)), x1 = Math.min(img.width - 1, Math.round(cx + h * 3.0));
+  const y0 = Math.max(0, Math.round(top - h * 1.9)), y1 = Math.max(0, Math.round(top - h * 0.1));
+  if (y1 <= y0) return null;
+  const d = img.data, cols = [];
+  for (let x = x0; x <= x1; x++) {
+    let n = 0;
+    for (let y = y0; y <= y1; y++) {
+      const i = (y * img.width + x) * 4, r = d[i], g = d[i + 1], b = d[i + 2];
+      if (r > 150 && g < r * 0.66 && b < r * 0.5 && r - b > 90) n++;
+    }
+    cols.push(n >= 2);
+  }
+  // 붙어 있는 열 묶음 = 아이콘 하나 (3px 이하 틈은 같은 아이콘으로 봄), 너무 좁은 묶음은 잡티로 버림
+  const minW = Math.max(4, h * 0.3);
+  let count = 0, st = -1, last = -99;
+  const close = () => { if (st >= 0 && last - st + 1 >= minW) count++; };
+  cols.forEach((on, i) => { if (!on) return; if (st < 0) st = i; else if (i - last > 3) { close(); st = i; } last = i; });
+  close();
+  return Math.min(MAX_STARS, count);
+}
+// 전법 목록: 레벨 숫자 둘레 고리가 5칸(72°씩, 위에서 시계 방향)으로 나뉘어 금색으로 채워집니다. 채워진 칸 수 = 돌.
+function ringStars(img, nb, words, hMed) {
+  const h = Math.max(10, hMed || (nb.y1 - nb.y0)), cy0 = nb.y1 - h / 2;
+  // 이름 왼쪽 같은 줄의 숫자(레벨)를 고리 중심으로. 못 찾으면 이름 높이 기준 위치로 추정.
+  const num = words.filter(w => /\d/.test(w.text) && w.bbox.x1 < nb.x0 && nb.x0 - w.bbox.x1 < h * 6 && Math.abs((w.bbox.y0 + w.bbox.y1) / 2 - cy0) < h)
+    .sort((p, q) => q.bbox.x1 - p.bbox.x1)[0];
+  let cx = num ? (num.bbox.x0 + num.bbox.x1) / 2 : nb.x0 - h * 4.4, cy = num ? (num.bbox.y0 + num.bbox.y1) / 2 : cy0;
+  const d = img.data, W = img.width, H = img.height;
+  const at = (x, y) => { x = Math.round(x); y = Math.round(y); if (x < 0 || y < 0 || x >= W || y >= H) return null; const i = (y * W + x) * 4; return [d[i], d[i + 1], d[i + 2]]; };
+  const gold = p => p && p[0] > 160 && p[1] > 110 && p[2] < 110 && p[0] - p[2] > 70;
+  // 고리: 금색 칸이거나, 배경(약 45)보다 밝은 무채색 회색 칸(선택 안 된 줄은 75~90 정도로 어두움)
+  const ringish = p => p && (gold(p) || (Math.max(...p) - Math.min(...p) < 45 && Math.max(...p) > 65));
+  // 고리 반지름은 글자 높이의 약 0.88배(실측 25px/29px). 고리 픽셀 = 금색이거나, 같은 방향 바깥쪽(+7px)보다 확실히 밝은 픽셀.
+  // (선택된 줄은 배경 자체가 회색이라 '회색이면 고리'로 보면 안 됨)
+  const lum = p => p ? p[0] * 0.3 + p[1] * 0.59 + p[2] * 0.11 : 0;
+  const r0 = h * 0.88, band = 3;
+  const hit = (x, y, c, sn, r) => { const p = at(x + r * c, y + r * sn); if (!p) return false; if (gold(p)) return true; const q = at(x + (r + 7) * c, y + (r + 7) * sn); return lum(p) - lum(q) > 12; };
+  let best = { s: -1, cx, cy };
+  const span = num ? 8 : 14;
+  for (let dx = -span; dx <= span; dx += 1) for (let dy = -span; dy <= span; dy += 1) {
+    let sc = 0;
+    for (let a = 0; a < 360; a += 10) { const t = a * Math.PI / 180, c = Math.cos(t), sn = Math.sin(t); for (let r = r0 - band; r <= r0 + band; r += 1) if (hit(cx + dx, cy + dy, c, sn, r)) { sc++; break; } }
+    if (sc > best.s) best = { s: sc, cx: cx + dx, cy: cy + dy };
+  }
+  if (best.s < 24) return null;   // 36방향 중 2/3 이상에서 고리가 보여야 함
+  let filled = 0;
+  for (let k = 0; k < 5; k++) {
+    let g = 0, n = 0;
+    for (let a = 270 + k * 72 + 8; a < 270 + (k + 1) * 72 - 8; a += 4) {
+      const t = a * Math.PI / 180; n++;
+      for (let r = r0 - band - 1; r <= r0 + band + 1; r += 1) if (gold(at(best.cx + r * Math.cos(t), best.cy + r * Math.sin(t)))) { g++; break; }
+    }
+    if (g / n > 0.5) filled++;
+  }
+  return { v: filled, sure: !!num, cx: best.cx, cy: best.cy, s: best.s, cx0: cx, cy0: cy };   // sure: 레벨 숫자 옆 고리를 찾았음 (오른쪽 큰 카드 제목 같은 중복보다 우선)
+}
+function ocrMatch(data, color) {
   const cands = [
     ...[...G.values()].filter(e => (e.season || 0) <= MAX_SEASON && (e.used || e.roster)).map(e => ({ kind: 'g', key: e.key, name: e.name, k: ocrNorm(e.name) })),
     ...[...T.values()].map(e => ({ kind: 't', key: e.key, name: e.name, k: ocrNorm(e.name) })),
@@ -801,8 +862,31 @@ function ocrMatch(data) {
     }
     if (best) best[lv.type === 's' ? 'stars' : 'grade'] = Math.min(lv.type === 's' ? MAX_STARS : MAX_GRADE, lv.v);
   }
+  // 화면 종류: 전법이 더 많이 잡히면 전법 화면(전법 아래 소유 무장 이름은 무시), 아니면 무장 화면(우연히 잡힌 전법은 무시)
+  const nT = names.filter(n => n.kind === 't').length, nG = names.filter(n => n.kind === 'g').length;
+  const screen = nT > nG ? 't' : 'g';
+  let pool = names.filter(n => n.kind === screen);
+  ocrMatch.last = { pool, words: lines.flat().map(w => ({ t: w.text, b: w.bbox })) };
+  // 그림으로 돌 읽기 (글자로 '3돌'을 못 읽었을 때)
+  if (color) {
+    const allWords = lines.flat();
+    const hs = pool.map(n => n.b.y1 - n.b.y0).sort((x, y) => x - y), hMed = hs.length ? hs[Math.floor((hs.length - 1) / 4)] : 0;   // 상자는 커지기만 하므로 아래쪽 4분위 높이를 보통 글자 높이로 봄
+    for (const n of pool) {
+      if (n.kind === 'g' && n.stars == null) { const v = iconStars(color, n.b, hMed); if (v != null) { n.stars = v; n.byImg = true; } }
+      if (n.kind === 't') {
+        const r = ringStars(color, n.b, allWords, hMed);
+        if (r && r.sure) { n.stars = r.v; n.byImg = 2; }
+        else {
+          // 고리가 없으면 오른쪽 큰 전법 카드일 수 있음: 카드 제목 위 빨간 돌 아이콘을 셈
+          const v = iconStars(color, n.b, hMed);
+          if (v) { n.stars = v; n.byImg = 1; } else if (r) { n.stars = r.v; n.byImg = 1; }
+        }
+      }
+    }
+  }
   const found = new Map();
-  for (const n of names) { const p = found.get(n.key); if (!p || (n.exact && !p.exact) || (n.stars ?? -1) > (p.stars ?? -1)) found.set(n.key, n); }
+  const rank = n => (+n.byImg || 0) * 2 + (n.exact ? 1 : 0);   // 그림으로 확실히 읽은 것 > 그림으로 읽은 것 > 글자만
+  for (const n of pool) { const p = found.get(n.key); if (!p || rank(n) > rank(p)) found.set(n.key, n); }
   const a = acct();
   return [...found.values()].map(it => {
     if (it.kind === 'g') {
@@ -812,14 +896,15 @@ function ocrMatch(data) {
       it.alts = alts.length > 1 ? alts.sort((x, y) => x.length - y.length) : null;
     }
     if (it.kind === 'g') { const g = a.generals[it.key] || {}; return { kind: 'g', alts: it.alts, key: it.key, name: it.name, exact: it.exact, line: it.line, checked: true, read: [it.stars != null ? `${it.stars}돌` : '', it.grade != null ? `${it.grade}품` : ''].filter(Boolean).join(' '), cur: g.owned ? reqText({ s: g.stars || 0, p: g.grade || 0 }) || '0돌' : '', stars: it.stars ?? (g.stars || 0), grade: it.grade ?? (g.grade || 0) }; }
-    const n = tCount(a, it.key); return { kind: 't', key: it.key, name: it.name, exact: it.exact, line: it.line, checked: true, cur: n ? `${n}개` : '', count: Math.max(1, n) };
+    const n = tCount(a, it.key), ts = (a.tstars || {})[it.key];
+    return { kind: 't', key: it.key, name: it.name, exact: it.exact, line: it.line, checked: true, read: it.stars != null ? `${it.stars}돌` : '', cur: n ? `${n}개${ts != null ? ` ${ts}돌` : ''}` : '', count: Math.max(1, n), stars: it.stars ?? (ts || 0) };
   }).sort((x, y) => (x.kind === y.kind ? byKoName(x, y) : x.kind === 'g' ? -1 : 1));
 }
 async function ocrRun(blob) {
   if (!blob || !/^image\//.test(blob.type)) return toast('이미지가 아닙니다');
   ocrSet({ status: 'loading', msg: '이미지 준비 중', img: URL.createObjectURL(blob), items: [], raw: '' });
   try {
-    const canvas = await ocrPrep(blob);
+    const { canvas, color } = await ocrPrep(blob);
     if (!ocrWorker) {
       ocrSet({ msg: '글자 인식 도구 불러오는 중 (처음 한 번, 약 2MB)' });
       await loadScript(OCR_LIB);
@@ -829,7 +914,7 @@ async function ocrRun(blob) {
     }
     ocrSet({ status: 'reading', msg: '글자 읽는 중' });
     const { data } = await ocrWorker.recognize(canvas, {}, { text: true, blocks: true });
-    const items = ocrMatch(data);
+    const items = ocrMatch(data, color);
     ocrSet({ status: 'done', raw: String(data.text || '').trim(), items, msg: items.length ? `${items.length}개를 찾았습니다. 맞는지 확인하고 저장하세요.` : '아는 무장·전법 이름을 찾지 못했습니다. 이름이 크게 보이도록 다시 캡처해 보세요.' });
   } catch (e) { ocrSet({ status: 'error', msg: '인식 실패: ' + e.message }); }
 }
@@ -842,7 +927,7 @@ function ocrPanel() {
     <td>${it.alts ? `<select data-ocr="key" data-i="${i}" title="SP·연의 무장인지 확인하세요">${it.alts.map(k => `<option value="${esc(k)}" ${k === it.key ? 'selected' : ''}>${esc(gName(k))}</option>`).join('')}</select>` : `<b>${esc(it.name)}</b>`}${it.exact ? '' : ' <span class="tag" title="글자 하나가 다르게 읽혔지만 가장 가까운 이름">비슷</span>'}${it.read ? ` <span class="tag" title="캡처에서 읽은 값">읽음 ${esc(it.read)}</span>` : ''}${it.cur ? ` <span class="small muted">현재 ${esc(it.cur)}</span>` : ' <span class="small have">새로 추가</span>'}</td>
     <td>${it.kind === 'g'
       ? `<select data-ocr="stars" data-i="${i}">${opt(MAX_STARS, it.stars, '돌')}</select> <select data-ocr="grade" data-i="${i}">${opt(MAX_GRADE, it.grade, '품')}</select>`
-      : `<select data-ocr="count" data-i="${i}"><option value="1" ${it.count === 1 ? 'selected' : ''}>1개</option><option value="2" ${it.count === 2 ? 'selected' : ''}>2개(영본)</option></select>`}</td>
+      : `<select data-ocr="stars" data-i="${i}">${opt(MAX_STARS, it.stars, '돌')}</select> <select data-ocr="count" data-i="${i}"><option value="1" ${it.count === 1 ? 'selected' : ''}>1개</option><option value="2" ${it.count === 2 ? 'selected' : ''}>2개(영본)</option></select>`}</td>
     <td class="small muted ocr-line" title="${esc(it.line)}">${esc(it.line)}</td></tr>`;
   const idx = it => ocr.items.indexOf(it);
   return `<div class="hint ocr">
@@ -870,7 +955,7 @@ function ocrApply() {
   for (const it of ocr.items) {
     if (!it.checked) continue;
     if (it.kind === 'g') a.generals[it.key] = { owned: true, stars: +it.stars || 0, grade: +it.grade || 0 };
-    else a.tactics[it.key] = Math.max(1, Math.min(2, +it.count || 1));
+    else { a.tactics[it.key] = Math.max(1, Math.min(2, +it.count || 1)); (a.tstars = a.tstars || {})[it.key] = Math.min(MAX_STARS, +it.stars || 0); }
     n++;
   }
   ocr.status = 'idle'; ocr.items = []; ocr.img = ''; ocr.raw = '';
@@ -938,7 +1023,7 @@ function viewOwn() {
   const chip = e => {
     const n = tCount(a, e.key);
     const tip = [e.ttype, e.trait, e.tseason].filter(Boolean).join(' · ') + (e.aliases ? `\n다른 자료 표기: ${[...e.aliases].join(', ')}` : '');
-    return `<button class="chip ${n ? 'on' : ''} ${n > 1 ? 'two' : ''} ${e.used ? '' : 'dim'}" data-act="tac" data-k="${esc(e.key)}"${tip ? ` title="${esc(tip)}"` : ''}>${esc(e.name)}${e.aliases ? '<span class="n">*</span>' : ''}${n > 1 ? '<span class="st">×2</span>' : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
+    return `<button class="chip ${n ? 'on' : ''} ${n > 1 ? 'two' : ''} ${e.used ? '' : 'dim'}" data-act="tac" data-k="${esc(e.key)}"${tip ? ` title="${esc(tip)}"` : ''}>${esc(e.name)}${e.aliases ? '<span class="n">*</span>' : ''}${n && (a.tstars || {})[e.key] ? `<span class="st">${a.tstars[e.key]}돌</span>` : ''}${n > 1 ? '<span class="st">×2</span>' : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
   };
   const TYPES = ['지휘', '액티브', '패시브', '추격'];
   const tparts = [...TYPES.map(t => section(`${t} 전법`, tacs.filter(e => e.ttype === t), e => tCount(a, e.key) > 0, chip)),
@@ -1359,5 +1444,5 @@ function showGate(onOk) {
 // ───────────────────────── 시작 ─────────────────────────
 function start() { start._done = true; buildData(); render(); Cloud.paintStatus(); Cloud.pull(); }
 if (isAuthed()) start(); else showGate(start);
-window.__tk3 = { get DECKS() { return DECKS; }, get COEXIST() { return COEXIST; }, G, T, check, solve, Cloud, state: () => state };
+window.__tk3 = { get DECKS() { return DECKS; }, get COEXIST() { return COEXIST; }, G, T, check, solve, Cloud, iconStars, ringStars, ocrMatch, state: () => state };
 })();
