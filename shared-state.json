@@ -518,6 +518,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "가후": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -556,6 +561,6 @@
    }
   ]
  },
- "rev": 144,
- "savedAt": "2026-11-11T14:07:36.423Z"
+ "rev": 145,
+ "savedAt": "2026-11-11T14:07:39.110Z"
 }
