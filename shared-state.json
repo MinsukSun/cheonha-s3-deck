@@ -223,6 +223,16 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "장량": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
+    },
+    "장보": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -269,6 +279,6 @@
    }
   ]
  },
- "rev": 18,
- "savedAt": "2026-11-11T13:37:08.044Z"
+ "rev": 19,
+ "savedAt": "2026-11-11T13:37:14.161Z"
 }
