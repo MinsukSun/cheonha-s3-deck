@@ -33,6 +33,36 @@
      "owned": true,
      "stars": 1,
      "grade": 0
+    },
+    "마초": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
+    },
+    "악진": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "여포": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "원소": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "주태": {
+     "owned": true,
+     "stars": 2,
+     "grade": 0
+    },
+    "진궁": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -79,6 +109,6 @@
    }
   ]
  },
- "rev": 6,
- "savedAt": "2026-11-11T13:07:09.931Z"
+ "rev": 7,
+ "savedAt": "2026-11-11T13:33:39.335Z"
 }
