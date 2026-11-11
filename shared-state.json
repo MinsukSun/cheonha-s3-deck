@@ -468,6 +468,16 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "원소": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "마초": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -506,6 +516,6 @@
    }
   ]
  },
- "rev": 135,
- "savedAt": "2026-11-11T14:06:59.728Z"
+ "rev": 136,
+ "savedAt": "2026-11-11T14:07:04.767Z"
 }
