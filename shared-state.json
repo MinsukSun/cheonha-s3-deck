@@ -483,6 +483,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "초선": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -521,6 +526,6 @@
    }
   ]
  },
- "rev": 137,
- "savedAt": "2026-11-11T14:07:09.320Z"
+ "rev": 138,
+ "savedAt": "2026-11-11T14:07:12.130Z"
 }
