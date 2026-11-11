@@ -603,6 +603,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "감녕": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -641,6 +646,6 @@
    }
   ]
  },
- "rev": 160,
- "savedAt": "2026-11-11T14:08:44.327Z"
+ "rev": 161,
+ "savedAt": "2026-11-11T14:08:47.536Z"
 }
