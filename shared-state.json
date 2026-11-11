@@ -63,6 +63,26 @@
      "owned": true,
      "stars": 1,
      "grade": 0
+    },
+    "관우": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
+    },
+    "유비": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "장비": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
+    },
+    "전풍": {
+     "owned": true,
+     "stars": 2,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -109,6 +129,6 @@
    }
   ]
  },
- "rev": 7,
- "savedAt": "2026-11-11T13:33:39.335Z"
+ "rev": 8,
+ "savedAt": "2026-11-11T13:33:56.528Z"
 }
