@@ -93,6 +93,11 @@
      "owned": true,
      "stars": 2,
      "grade": 0
+    },
+    "채문희": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -139,6 +144,6 @@
    }
   ]
  },
- "rev": 9,
- "savedAt": "2026-11-11T13:34:07.421Z"
+ "rev": 10,
+ "savedAt": "2026-11-11T13:34:20.044Z"
 }
