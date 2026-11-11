@@ -528,6 +528,11 @@
      "owned": true,
      "stars": 1,
      "grade": 0
+    },
+    "제갈량": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -566,6 +571,6 @@
    }
   ]
  },
- "rev": 146,
- "savedAt": "2026-11-11T14:07:41.502Z"
+ "rev": 147,
+ "savedAt": "2026-11-11T14:07:48.061Z"
 }
