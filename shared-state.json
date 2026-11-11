@@ -143,6 +143,26 @@
      "owned": true,
      "stars": 1,
      "grade": 0
+    },
+    "관평": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
+    },
+    "마운록": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
+    },
+    "법정": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
+    },
+    "황월영": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -189,6 +209,6 @@
    }
   ]
  },
- "rev": 14,
- "savedAt": "2026-11-11T13:36:42.042Z"
+ "rev": 15,
+ "savedAt": "2026-11-11T13:36:49.036Z"
 }
