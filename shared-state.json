@@ -628,6 +628,11 @@
      "owned": true,
      "stars": 1,
      "grade": 0
+    },
+    "장각": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -666,6 +671,6 @@
    }
   ]
  },
- "rev": 165,
- "savedAt": "2026-11-11T14:09:04.561Z"
+ "rev": 166,
+ "savedAt": "2026-11-11T14:09:07.770Z"
 }
