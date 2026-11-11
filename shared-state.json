@@ -503,6 +503,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "감부인": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -541,6 +546,6 @@
    }
   ]
  },
- "rev": 141,
- "savedAt": "2026-11-11T14:07:27.988Z"
+ "rev": 142,
+ "savedAt": "2026-11-11T14:07:30.680Z"
 }
