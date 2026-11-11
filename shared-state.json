@@ -568,6 +568,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "하후연": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {},
@@ -606,6 +611,6 @@
    }
   ]
  },
- "rev": 153,
- "savedAt": "2026-11-11T14:08:16.639Z"
+ "rev": 154,
+ "savedAt": "2026-11-11T14:08:19.019Z"
 }
