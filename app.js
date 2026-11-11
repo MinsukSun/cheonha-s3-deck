@@ -44,7 +44,7 @@ function normalizeAccounts() {
   if (!(state.active < state.accounts.length)) state.active = 0;
 }
 normalizeAccounts();
-state.ui = Object.assign({ tab: 'decks', src: 'main', status: 'all', q: '', ownTab: 'generals', ownMode: 'own', ownQ: '', ownUsedOnly: true, ownSort: 'name' }, state.ui || {});
+state.ui = Object.assign({ tab: 'decks', src: 'main', status: 'all', q: '', ownTab: 'generals', ownMode: 'own', ownQ: '', ownUsedOnlyV2: false, ownSort: 'name' }, state.ui || {});
 state.sheet = state.sheet || DEFAULT_SHEET;
 state.customDecks = state.customDecks || [];
 // 저장된 값이나 불러온 백업에 최대보다 큰 값이 있으면 최대로 맞춥니다.
@@ -986,7 +986,7 @@ function viewOwn() {
     <div class="seg">${[['generals', '무장'], ['tactics', '전법']].map(([v, l]) => `<button data-act="set" data-k="ownTab" data-v="${v}" class="${u.ownTab === v ? 'on' : ''}">${l}</button>`).join('')}</div>
     ${u.ownTab === 'generals' ? `<div class="seg">${[['own', '탭=보유'], ['stars', '탭=돌파+1'], ['grade', '탭=품+1']].map(([v, l]) => `<button data-act="set" data-k="ownMode" data-v="${v}" class="${u.ownMode === v ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}
     <input type="search" placeholder="이름 검색" value="${esc(u.ownQ)}" data-model="ownQ">
-    <label class="small"><input type="checkbox" data-act="toggleUsedOnly" ${u.ownUsedOnly ? 'checked' : ''}> 덱에 쓰이는 것만</label>
+    <label class="small"><input type="checkbox" data-act="toggleUsedOnly" ${u.ownUsedOnlyV2 ? 'checked' : ''}> 덱에 쓰이는 것만</label>
   </div>
   <div class="bar">
     <select data-act-input="copyFrom"><option value="">다른 계정에서 복사…</option>${state.accounts.map((x, i) => i === state.active ? '' : `<option value="${i}">${esc(x.name)}의 ${u.ownTab === 'generals' ? '무장' : '전법'} 복사</option>`).join('')}</select>
@@ -1004,7 +1004,7 @@ function viewOwn() {
     ? `<div class="section-t">${label} (보유 ${items.filter(isOwned).length}/${items.length})</div><div class="chips">${items.sort(sorter).map(chip).join('')}</div>` : '';
   if (u.ownTab === 'generals') {
     let gens = [...G.values()].filter(e => (e.season || 0) <= MAX_SEASON);
-    if (u.ownUsedOnly) gens = gens.filter(e => e.used > 0 || ownsG(a, e.key));
+    if (u.ownUsedOnlyV2) gens = gens.filter(e => e.used > 0 || ownsG(a, e.key));
     if (q) gens = gens.filter(e => e.key.includes(q));
     const chip = e => {
       const g = a.generals[e.key] || {};
@@ -1018,7 +1018,7 @@ function viewOwn() {
     return head + sortBar + `<p class="small muted">칩을 누르면 보유/해제됩니다. 시즌별로 나눠 보여주고, 각 묶음 안은 위에서 고른 순서(가나다순 또는 많이 쓰이는 순)입니다. 오른쪽 작은 숫자는 그 무장이 쓰이는 덱 수입니다. 돌파 수는 <b>탭=돌파+1</b>, 승품은 <b>탭=품+1</b>을 고른 뒤 누르면 하나씩 올라갑니다. 돌파는 최대 ${MAX_STARS}돌, 승품은 최대 ${MAX_GRADE}품이고, 최대 다음은 0으로 돌아갑니다. 칩에 마우스를 올리면 시즌·고유 전법이 보입니다.</p>` + (parts || '<div class="empty">표시할 무장이 없습니다.</div>');
   }
   let tacs = [...T.values()];
-  if (u.ownUsedOnly) tacs = tacs.filter(e => e.used > 0 || tCount(a, e.key));
+  if (u.ownUsedOnlyV2) tacs = tacs.filter(e => e.used > 0 || tCount(a, e.key));
   if (q) tacs = tacs.filter(e => e.key.includes(q));
   const chip = e => {
     const n = tCount(a, e.key);
@@ -1028,7 +1028,7 @@ function viewOwn() {
   const TYPES = ['지휘', '액티브', '패시브', '추격'];
   const tparts = [...TYPES.map(t => section(`${t} 전법`, tacs.filter(e => e.ttype === t), e => tCount(a, e.key) > 0, chip)),
     section('유형 미확인', tacs.filter(e => !TYPES.includes(e.ttype)), e => tCount(a, e.key) > 0, chip)].join('');
-  return head + sortBar + `<p class="small muted">누를 때마다 <b>없음 → 1개 → 2개(영본) → 없음</b>으로 바뀝니다. 공존덱처럼 같은 전법을 두 부대에 쓰려면 2개가 필요합니다. 유형별(지휘·액티브·패시브·추격)로 나눠 보여주고, 오른쪽 숫자는 그 전법이 쓰이는 덱 수입니다. 칩에 마우스를 올리면 특성·등장 시즌이 보입니다. <b>덱에 쓰이는 것만</b>을 끄면 S1~S3 전체 전법이 나옵니다.</p>
+  return head + sortBar + `<p class="small muted">누를 때마다 <b>없음 → 1개 → 2개(영본) → 없음</b>으로 바뀝니다. 공존덱처럼 같은 전법을 두 부대에 쓰려면 2개가 필요합니다. 유형별(지휘·액티브·패시브·추격)로 나눠 보여주고, 오른쪽 숫자는 그 전법이 쓰이는 덱 수입니다. 칩에 마우스를 올리면 특성·등장 시즌이 보입니다. 기본으로 S1~S3 전체 전법이 나오고, <b>덱에 쓰이는 것만</b>을 켜면 추천 덱에 나오는 전법만 보입니다(흐린 칩 = 덱에 안 쓰임).</p>
     ${tparts || '<div class="empty">표시할 전법이 없습니다.</div>'}
     <div class="bar" style="margin-top:14px"><input type="text" list="dlTactics" id="newTac" placeholder="목록에 없는 전법 직접 추가"><button class="btn" data-act="addTac">추가</button></div>`;
 }
@@ -1266,7 +1266,7 @@ document.addEventListener('click', e => {
   switch (A) {
     case 'acct': state.active = +b.dataset.i; break;
     case 'set': state.ui[b.dataset.k] = b.dataset.v; break;
-    case 'toggleUsedOnly': state.ui.ownUsedOnly = b.checked; break;
+    case 'toggleUsedOnly': state.ui.ownUsedOnlyV2 = b.checked; break;
     case 'gen': {
       const g = a.generals[b.dataset.k] || (a.generals[b.dataset.k] = { owned: false, stars: 0 });
       if (state.ui.ownMode === 'stars') cycleStars(g); else if (state.ui.ownMode === 'grade') cycleGrade(g); else g.owned = !g.owned;
