@@ -829,9 +829,31 @@
     "name": "무장 도감",
     "gid": "1134089693",
     "kind": "roster"
+   },
+   {
+    "name": "시즌3 티어덱 ①",
+    "gid": "2130591871",
+    "kind": "band",
+    "sid": "1HqKv31nFCBqB5DF-D-ezuAkM-k_TLl0vRWTtAnLYDXc",
+    "lineup": "none"
+   },
+   {
+    "name": "시즌3 티어덱 ②",
+    "gid": "1764941948",
+    "kind": "band",
+    "sid": "1HqKv31nFCBqB5DF-D-ezuAkM-k_TLl0vRWTtAnLYDXc",
+    "lineup": "auto"
+   },
+   {
+    "name": "시즌3 티어덱 ③",
+    "gid": "8456161",
+    "kind": "band",
+    "sid": "1HqKv31nFCBqB5DF-D-ezuAkM-k_TLl0vRWTtAnLYDXc",
+    "lineup": "all"
    }
-  ]
+  ],
+  "v": 2
  },
- "rev": 246,
- "savedAt": "2026-11-11T23:55:54.345Z"
+ "rev": 247,
+ "savedAt": "2026-11-12T04:29:45.073Z"
 }
