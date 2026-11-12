@@ -8,14 +8,19 @@ import csv, io, json, sys, urllib.request, datetime, pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_ID = "17NtAf-aULDH-RtGPlWHHTGXJdg6R3yPg87uIo-F75_I"
+SHEET_B = "1HqKv31nFCBqB5DF-D-ezuAkM-k_TLl0vRWTtAnLYDXc"
 
-# kind: tier(티어덱) / variant(변칙·계열덱) / coexist(공존덱) / roster(무장 도감)
+# kind: tier(티어덱) / variant(변칙·계열덱) / coexist(공존덱) / band(블록 정리표) / roster(무장 도감)
 TABS = [
     {"name": "시즌3 티어덱", "gid": "1443176189", "kind": "tier"},
     {"name": "시즌3 변칙, 계열덱", "gid": "1922923785", "kind": "variant"},
     {"name": "시즌3 공존덱", "gid": "474450804", "kind": "coexist"},
     {"name": "시즌3 공존덱(2)", "gid": "841351688", "kind": "coexist"},
     {"name": "무장 도감", "gid": "1134089693", "kind": "roster"},
+    # 추가 시트 (sid가 있으면 그 시트에서 받음)
+    {"name": "시즌3 티어덱 ①", "gid": "2130591871", "kind": "band", "sid": SHEET_B, "lineup": "none"},
+    {"name": "시즌3 티어덱 ②", "gid": "1764941948", "kind": "band", "sid": SHEET_B, "lineup": "auto"},
+    {"name": "시즌3 티어덱 ③", "gid": "8456161", "kind": "band", "sid": SHEET_B, "lineup": "all"},
 ]
 
 
@@ -39,7 +44,7 @@ def main():
         "tabs": [],
     }
     for t in TABS:
-        grid = fetch(sheet_id, t["gid"])
+        grid = fetch(t.get("sid") or sheet_id, t["gid"])
         print(f"{t['name']}: {len(grid)} rows")
         out["tabs"].append({**t, "grid": grid})
     dest = ROOT / "data" / "sheet-cache.js"

@@ -3,7 +3,9 @@
 'use strict';
 
 // ───────────────────────── 기본 설정 ─────────────────────────
+const SHEET_B = '1HqKv31nFCBqB5DF-D-ezuAkM-k_TLl0vRWTtAnLYDXc';
 const DEFAULT_SHEET = {
+  v: 2,
   id: '17NtAf-aULDH-RtGPlWHHTGXJdg6R3yPg87uIo-F75_I',
   tabs: [
     { name: '시즌3 티어덱', gid: '1443176189', kind: 'tier' },
@@ -11,9 +13,19 @@ const DEFAULT_SHEET = {
     { name: '시즌3 공존덱', gid: '474450804', kind: 'coexist' },
     { name: '시즌3 공존덱(2)', gid: '841351688', kind: 'coexist' },
     { name: '무장 도감', gid: '1134089693', kind: 'roster' },
+    // 추가 시트 (다른 사람이 정리한 S3 티어덱·연의 공존 편성)
+    { name: '시즌3 티어덱 ①', gid: '2130591871', kind: 'band', sid: SHEET_B, lineup: 'none' },
+    { name: '시즌3 티어덱 ②', gid: '1764941948', kind: 'band', sid: SHEET_B, lineup: 'auto' },
+    { name: '시즌3 티어덱 ③', gid: '8456161', kind: 'band', sid: SHEET_B, lineup: 'all' },
   ],
 };
-const KIND_LABEL = { tier: '티어덱', variant: '변칙·계열덱', coexist: '공존덱', simple: '내 시트', roster: '무장 도감', community: '커뮤니티', research: '추가 조사', custom: '내 덱' };
+// 예전 설정(추가 시트 탭이 없는 것)에 기본 탭을 한 번만 채워 넣습니다.
+function migrateSheet(sh) {
+  if (!sh || !Array.isArray(sh.tabs) || (sh.v || 0) >= 2) return sh;
+  for (const t of DEFAULT_SHEET.tabs) if (t.sid && !sh.tabs.some(x => x.gid === t.gid && x.sid === t.sid)) sh.tabs.push({ ...t });
+  sh.v = 2; return sh;
+}
+const KIND_LABEL = { tier: '티어덱', variant: '변칙·계열덱', coexist: '공존덱', band: '블록 정리표', simple: '내 시트', roster: '무장 도감', community: '커뮤니티', research: '추가 조사', custom: '내 덱' };
 const LABELS = new Set(['전법', '병법', '병종', '장비', '장비/탈것', '장비특성', '탈것특성', '스텟', '스탯', '비고']);
 const MAX_SEASON = 3;
 // 돌파(红度)·승품(金印 升品) 최대 단계: 둘 다 5 (17173 2025-02-22 기사 "升品也是有5红", 커뮤니티 "共5品")
@@ -45,7 +57,7 @@ function normalizeAccounts() {
 }
 normalizeAccounts();
 state.ui = Object.assign({ tab: 'decks', src: 'main', status: 'all', q: '', ownTab: 'generals', ownMode: 'stars', ownTacMode: 'stars', ownQ: '', ownUsedOnlyV2: false, ownSort: 'name' }, state.ui || {});
-state.sheet = state.sheet || DEFAULT_SHEET;
+state.sheet = migrateSheet(state.sheet || JSON.parse(JSON.stringify(DEFAULT_SHEET)));
 state.customDecks = state.customDecks || [];
 // 저장된 값이나 불러온 백업에 최대보다 큰 값이 있으면 최대로 맞춥니다.
 function clampAccounts() {
@@ -154,7 +166,7 @@ const Cloud = (() => {
   }
   function applyShared(data) {
     data = body(JSON.parse(sj(data)));
-    state.accounts = data.accounts; state.customDecks = data.customDecks || []; if (data.sheet) state.sheet = data.sheet;
+    state.accounts = data.accounts; state.customDecks = data.customDecks || []; if (data.sheet) state.sheet = migrateSheet(data.sheet);
     normalizeAccounts(); clampAccounts(); save(LS_STATE, state);
   }
   const dirty = () => meta.base == null || sj(shared(state)) !== sj(body(meta.base));
@@ -270,6 +282,8 @@ const Cloud = (() => {
 })();
 
 let cache = load(LS_CACHE, null) || window.SHEET_CACHE || { tabs: [] };
+// 브라우저에 저장된 예전 캐시에 없는 탭(추가 시트)은 사이트에 들어 있는 캐시에서 채웁니다.
+for (const t of (window.SHEET_CACHE || {}).tabs || []) if (!(cache.tabs || []).some(x => x.gid === t.gid && (x.sid || '') === (t.sid || ''))) (cache.tabs = cache.tabs || []).push(t);
 
 // ───────────────────────── 이름 사전 ─────────────────────────
 const G = new Map(); // 무장 key → {key,name,season,skill,type,cat,desc,used,forms}
@@ -387,6 +401,172 @@ function parseSimpleTab(tab) {
   return out;
 }
 
+// ───────── 블록 정리표 형식 (추가 시트: '장수' 줄 또는 '전법' 칸 기준 블록) ─────────
+// 한 줄에 나란히 놓인 블록들 = 하나의 띠(band). lineup 설정에 따라 띠를 공존 편성으로도 묶습니다.
+//   none: 덱 목록만 · auto: 2덱 이상이고 '카운터' 묶음이 아니면 공존 · all: 2덱 이상이면 공존
+// 'OR' 칸이 두 블록 사이에 있으면 그 둘은 같은 자리의 택1입니다.
+// 첫 시트와 같은 이름으로 맞춤: 장비 = 장비·탈것 능력치(무력선공 등), 장비특성 = 장비 세트, 탈것특성 = 탈것
+const BAND_LABEL = { '전법': 'T', '전법1': 'T', '전법2': 'T', '대체전법': '대체 전법', '병법': 'B', '병종': '병종', '탈것,장비': '장비', '장비,탈것': '장비',
+  '장비': '장비특성', '탈것': '탈것특성', '스탯': '스텟', '스텟': '스텟', '설명': 'NOTE', '비고': 'NOTE' };
+const TROOP_SHORT = { 궁: '궁병', 기: '기병', 창: '창병', 방: '방패병' };
+function bandGen(raw) {
+  let s = String(raw || '').replace(/\s+/g, ' ').trim(); if (!s) return '';
+  if (s === '내 부인') s = '감부인';
+  let troop = '';
+  const tm = s.match(/\s*-\s*(궁|기|창|방)(?:병|패병)?$/); if (tm) { troop = TROOP_SHORT[tm[1]]; s = s.slice(0, tm.index); }
+  const pm = s.match(/(궁병|기병|창병|방패병)\s*/); if (pm) { troop = troop || pm[1]; s = s.replace(pm[0], ''); }
+  s = s.replace(/^연의\s*/, '연의 ').trim();
+  return troop ? `${s}(${troop})` : s;
+}
+function bandTac(v) {
+  v = String(v || '').trim(); if (!v || v === '-') return '';
+  const copy = /(^|[\/\n])\s*영\s*[-·]/.test(v);
+  v = v.replace(/(^|[\/\n])\s*영\s*[-·]\s*/g, '$1').replace(/\n/g, '/');
+  return copy ? v + '(영본)' : v;
+}
+function bandText(s) {
+  const lines = String(s || '').split('\n').map(x => x.trim()), ne = lines.filter(Boolean);
+  const vertical = ne.length > 3 && ne.filter(x => x.length <= 2).length / ne.length > 0.6;
+  return (vertical ? lines.join('') : ne.join(' ')).split('//')[0].replace(/\s+/g, ' ').replace(/[\s\/]+$/, '').trim();
+}
+const stripHan = s => { const t = String(s).replace(/[一-鿿][一-鿿\/\s]*/g, ' ').replace(/^[\s\/]+|[\s\/]+$/g, '').replace(/\s+/g, ' ').trim(); return t || String(s).trim(); };
+const tabSrc = tab => (tab.sid && tab.sid !== (state.sheet || DEFAULT_SHEET).id ? '추가 시트 · ' : '') + tab.name;
+
+function parseBandTab(tab, ti) {
+  const g = tab.grid || [], src = tabSrc(tab), decks = [], groups = [];
+  const anchors = [];
+  for (let r = 0; r < g.length; r++) for (let c = 0; c < (g[r] || []).length; c++) {
+    const v = key(cell(g, r, c));
+    if (v === '장수' && [1, 2, 3].some(j => cell(g, r, c + j))) anchors.push({ gr: r, c, lr: r + 2, fr: r + 1 });
+    else if (v === '전법' && r >= 2 && !cell(g, r - 2, c) && [1, 2, 3].some(j => cell(g, r - 2, c + j))) anchors.push({ gr: r - 2, c, lr: r, fr: r - 1 });
+  }
+  // 긴 설명 칸의 "1. 덱이름 / 설명…" 목록
+  const notes = [];
+  g.forEach(row => (row || []).forEach(v => {
+    if (String(v).length < 150 || !/\d+\.\s/.test(v)) return;
+    String(v).split(/\n(?=\s*\d+\.\s)/).forEach(ch => {
+      const m = ch.match(/^\s*\d+\.\s*([^\n]+)\n?([\s\S]*)$/); if (!m) return;
+      const names = m[1].split(/[()（）]/).map(x => key(stripHan(x))).filter(x => x.length >= 2);
+      const body = m[2].replace(/\s*\n\s*/g, ' ').trim();
+      if (names.length && body) notes.push({ names, body });
+    });
+  }));
+  const bands = {};
+  anchors.forEach(an => (bands[an.gr] = bands[an.gr] || []).push(an));
+  const bandRows = Object.keys(bands).map(Number).sort((a, b) => a - b);
+  bandRows.forEach((gr, bi) => {
+    const list = bands[gr].sort((a, b) => a.c - b.c), minC = list[0].c, prev = bi ? bandRows[bi - 1] : -1;
+    // 묶음 이름: 블록 왼쪽 열에서 가장 가까운 글, 단계: 그 위쪽의 '…단계' 글
+    let section = '', stage = '';
+    for (let rr = gr - 1; rr > prev && !section; rr--) for (let cc = minC - 1; cc >= 0 && !section; cc--) section = bandText(cell(g, rr, cc));
+    for (let rr = gr - 1; rr >= 0 && !stage; rr--) { const t = bandText(cell(g, rr, 0)); if (/단계/.test(t)) stage = t; }
+    const gname = [...new Set([stage, section].filter(Boolean))].join(' · ');
+    const made = [];
+    for (const an of list) {
+      const { c } = an, at = row => (row >= 0 ? cell(g, row, c) || cell(g, row, c + 1) : '');
+      const t1 = at(gr - 1).split('\n')[0].replace(/[\s\/]+$/, '').trim(), t2 = at(gr - 2).split('\n')[0].trim();
+      let title = t1, desc = '';
+      if (/^T\s*\d/i.test(t2)) { title = t2; desc = at(gr - 1).replace(/\s*\n\s*/g, ' ').trim(); }
+      if (!title || title === 'OR') title = t2 || '이름 없음';
+      const tp = parseTier(title);
+      const name = stripHan(tp.name);
+      const slots = [1, 2, 3].map(j => ({ gen: parseGeneralCell(bandGen(cell(g, gr, c + j))), tactics: [], books: [], rows: {} }));
+      let label = '', note = '';
+      for (let i = an.lr; i < g.length; i++) {
+        const labRaw = cell(g, i, c), vals = [1, 2, 3].map(j => cell(g, i, c + j));
+        if (!labRaw && !vals.some(Boolean)) break;
+        if (labRaw) { const L = BAND_LABEL[key(labRaw)]; if (!L) break; label = L; }
+        if (!label) break;
+        if (label === 'NOTE') { note += (note ? ' ' : '') + vals.filter(Boolean).join(' ').replace(/\s*\n\s*/g, ' '); continue; }
+        vals.forEach((v, j) => {
+          const s = slots[j]; if (!v) return;
+          if (label === 'T') { const t = parseTacticCell(bandTac(v)); if (t) s.tactics.push(t); }
+          else if (label === 'B') s.books.push(v.replace(/\s*\n\s*/g, ' '));
+          else { const vv = label === '대체 전법' ? bandTac(v).replace(/\(영본\)$/, '').split('/').map(x => x.trim()).filter(Boolean).join(' / ') : v.replace(/\s*\n\s*/g, ' '); if (vv) s.rows[label] = (s.rows[label] ? s.rows[label] + ' · ' : '') + vv; }
+        });
+      }
+      if (!slots.some(s => s.gen) || !slots.some(s => s.tactics.length)) continue;
+      slots.forEach(s => { if (s.rows['병종'] && s.gen && !s.gen.troop) s.gen.troop = s.rows['병종']; });
+      if (!desc) { const tk = key(name); const hit = notes.find(n => n.names.some(x => x === tk || (x.length >= 2 && (tk.includes(x) || x.includes(tk))))); if (hit) desc = hit.body; }
+      const d = mkDeck({ src, kind: 'tier', group: tab.lineup === 'none' ? '' : gname, title, name, tier: tp.tier, tierLabel: tp.tierLabel, desc, note,
+        formation: bandText(cell(g, an.fr, c)), slots, pos: `${gr}:${c}`, prio: 2 + ti / 100 });
+      d.id = `band:${key(tab.gid || tab.name)}:${d.id}`;
+      decks.push(d); made.push({ d, c });
+    }
+    // 공존 묶음
+    const isLineup = made.length >= 2 && (tab.lineup === 'all' || (tab.lineup === 'auto' && !/카운터/.test(section)));
+    if (!isLineup) return;
+    const slotsL = [];
+    // 'N군'·'선발대' 머리글이 있으면 그 열 기준으로 자리를 나눕니다 (머리글 오른쪽 블록들은 같은 자리의 택1).
+    const heads = [];
+    for (const rr of [gr - 2, gr - 3]) (g[rr] || []).forEach((v, cc) => { if (/^(\d\s*군|선발대)$/.test(String(v).trim()) && cc >= minC) heads.push(cc); });
+    if (new Set(heads).size >= 2) {
+      const hs = [...new Set(heads)].sort((a, b) => a - b), by = {};
+      made.forEach(m => { const h = hs.filter(x => x <= m.c).pop() ?? hs[0]; (by[h] = by[h] || []).push(m.d); });
+      hs.forEach(h => by[h] && slotsL.push(by[h]));
+    } else made.forEach((m, i) => {
+      const orCell = i && [gr - 1, gr - 2].some(rr => { for (let cc = made[i - 1].c + 1; cc <= m.c; cc++) if (key(cell(g, rr, cc)) === 'or') return true; return false; });
+      if (orCell) slotsL[slotsL.length - 1].push(m.d); else slotsL.push([m.d]);
+    });
+    let options = [[]];
+    slotsL.forEach(alts => { options = options.flatMap(o => alts.map(x => [...o, x])); });
+    groups.push({ name: gname || `${src} 공존`, src, need: slotsL.length, decks: made.map(m => m.d), options: options.length > 1 ? options : null });
+    if (slotsL.some(s => s.length > 1)) made.forEach(m => { if (slotsL.find(s => s.includes(m.d)).length > 1) m.d.choiceTag = '택1'; });
+  });
+  return { decks, groups };
+}
+
+// ───────── 겹치는 덱 하나로 합치기 ─────────
+// 같은 무장 3명 + 전법이 거의 같은 덱(다른 전법 칸 2개 이하)은 우선순위가 높은 출처의 덱 하나로 합칩니다.
+// 다른 전법은 그 자리의 대체안(A / B)으로, 빠진 병법·병종·장비·설명·티어는 서로 채웁니다.
+// 커뮤니티 덱(무장만 있음)은 같은 무장 조합 덱이 있으면 출처만 남기고 합칩니다.
+let DECK_ALIAS = {};
+function mergeDupes(decks) {
+  DECK_ALIAS = {};
+  const gsig = d => d.slots.map(s => (s.gen ? s.gen.opts[0] : '')).sort().join('+');
+  const optsOf = sl => new Set(sl.tactics.flatMap(t => t.opts));
+  const pair = (p, d) => d.slots.map(ds => [ds, ds.gen && p.slots.find(ps => ps.gen && ps.gen.opts[0] === ds.gen.opts[0])]);
+  const uncovered = (a, b) => a.tactics.filter(t => !t.opts.some(k => optsOf(b).has(k)));
+  const mismatch = (p, d) => pair(p, d).reduce((n, [ds, ps]) => n + (ps ? uncovered(ds, ps).length : 9), 0);
+  const elig = d => d.prio != null && !d.unknownTactics;
+  const primaries = {}, gone = new Set();
+  const order = decks.filter(elig).sort((x, y) => x.prio - y.prio);
+  for (const d of order) {
+    const sg = gsig(d), list = primaries[sg] = primaries[sg] || [];
+    const p = list.find(p => mismatch(p, d) <= 2);
+    if (!p) { list.push(d); continue; }
+    gone.add(d); DECK_ALIAS[d.id] = p.id;
+    p.srcs = [...new Set([...(p.srcs || [p.src]), d.src])];
+    const nm = String(d.name).trim();   // 다른 출처의 덱 이름 (설명 문장처럼 보이는 제목은 빼기)
+    if (nm.length >= 2 && nm.length <= 10 && !/[,，.]|돌|품|피해|중요|필수|사용|(고|데|음|함)$|^(궁병|기병|창병|방패병)$/.test(nm) && !T.has(key(nm)) && key(nm) !== key(p.name) && !(p.aka || []).some(x => key(x) === key(nm))) (p.aka = p.aka || []).push(nm);
+    for (const [ds, ps] of pair(p, d)) {
+      if (!ps) continue;
+      const U = uncovered(ds, ps), V = uncovered(ps, ds);
+      U.forEach((u, i) => {
+        if (V[i]) { u.opts.forEach(k => V[i].opts.includes(k) || V[i].opts.push(k)); V[i].raw += ' / ' + u.raw; V[i].copy = V[i].copy || u.copy; }
+        else if (ps.tactics.length < 2) ps.tactics.push({ ...u, opts: [...u.opts] });
+      });
+      if (!ps.books.length && ds.books.length) ps.books = [...ds.books];
+      for (const [k, v] of Object.entries(ds.rows || {})) if (!ps.rows[k]) ps.rows[k] = v;
+      if (ps.gen && ds.gen && !ps.gen.troop && ds.gen.troop) ps.gen.troop = ds.gen.troop;
+    }
+    if (p.tier == null && d.tier != null) { p.tier = d.tier; p.tierLabel = d.tierLabel; }
+    if (!p.formation) p.formation = d.formation;
+    else if (d.formation && !key(p.formation).includes(key(d.formation))) p.formation += ' / ' + d.formation;
+    if (!p.url && d.url) p.url = d.url;
+    const ex = [d.desc, d.note].filter(Boolean).join(' ');
+    if (ex && ![p.desc, p.note, ...(p.extra || []).map(x => x.text)].some(t => t && t.includes(ex))) (p.extra = p.extra || []).push({ src: d.src, name: d.name, text: ex });
+  }
+  // 커뮤니티 덱(무장만) → 같은 무장 조합 덱에 출처만 합치기
+  for (const d of decks.filter(d => d.kind === 'community')) {
+    const p = (primaries[gsig(d)] || [])[0]; if (!p) continue;
+    gone.add(d); DECK_ALIAS[d.id] = p.id; p.srcs = [...new Set([...(p.srcs || [p.src]), d.src])];
+  }
+  return decks.filter(d => !gone.has(d));
+}
+const resolveId = id => { const i = id.indexOf('~sub~'), b = i < 0 ? id : id.slice(0, i); return DECK_ALIAS[b] ? DECK_ALIAS[b] + (i < 0 ? '' : id.slice(i)) : id; };
+const deckById = id => DECKS.find(x => x.id === id) || DECKS.find(x => x.id === resolveId(id));
+
 function parseRoster(tab) {
   const g = tab.grid || [];
   let season = 1;
@@ -407,7 +587,7 @@ function parseRoster(tab) {
 // s.req[무장key] = { s: 돌파, p: 품 }
 // 문구에 처음 나오는 조건(일반 서버 기준)만 쓰고, 뒤에 붙은 "시골섭에는 3돌 1품" 같은 완화 조건은 무시합니다.
 function extractStarReq(d) {
-  const text = [d.desc, d.note, d.starText].filter(Boolean).join(' ');
+  const text = [d.desc, d.note, d.starText, ...(d.extra || []).map(x => x.text)].filter(Boolean).join(' ');
   d.slots.forEach(s => { s.req = {}; s.reqRural = {}; });
   if (!/\d\s*(돌|품)/.test(text)) return;
   for (const s of d.slots) {
@@ -459,10 +639,14 @@ function buildData() {
   const tabs = cache.tabs || [];
   tabs.filter(t => t.kind === 'roster').forEach(parseRoster);
   let decks = [];
-  for (const t of tabs) {
-    if (t.kind === 'roster') continue;
-    decks = decks.concat(t.kind === 'simple' ? parseSimpleTab(t) : parseBlockTab(t));
-  }
+  const bandGroups = [];
+  tabs.forEach((t, ti) => {
+    if (t.kind === 'roster') return;
+    if (t.kind === 'band') { const r = parseBandTab(t, ti); decks = decks.concat(r.decks); bandGroups.push(...r.groups); return; }
+    const ds = t.kind === 'simple' ? parseSimpleTab(t) : parseBlockTab(t);
+    ds.forEach(d => { if (d.kind !== 'coexist') d.prio = d.kind === 'tier' ? 0 + ti / 100 : d.kind === 'variant' ? 1 + ti / 100 : 1.5; });
+    decks = decks.concat(ds);
+  });
   // 커뮤니티 덱
   for (const src of window.EXTRA_DECKS || []) for (const d of src.decks) {
     decks.push(mkDeck({ src: src.source, url: src.url, kind: 'community', group: '', title: d.name, name: d.name, tier: null, tierLabel: '', desc: '', note: d.note || '',
@@ -474,7 +658,7 @@ function buildData() {
     const tier = tr.tier == null ? null : 0.4 + tr.tier * 0.5;  // T0→0.4, T1→0.9, T2→1.4 (시트 티어보다 한 단계 아래로 봄)
     decks.push(mkDeck({ src: src.source, url: src.url, kind: 'research', group: d.group || '', title: d.name, name: d.name, tier,
       tierLabel: d.tier ? d.tier + (d.score ? ` ${d.score}` : '') : '', desc: '', note: d.note || '', formation: d.formation || '',
-      slots: d.generals.map((n, i) => ({ gen: parseGeneralCell(n), tactics: (d.tactics[i] || []).map(parseTacticCell).filter(Boolean), books: [], rows: d.troops && d.troops[i] ? { '병종': d.troops[i] } : {} })) }));
+      slots: d.generals.map((n, i) => ({ gen: parseGeneralCell(n), tactics: (d.tactics[i] || []).map(parseTacticCell).filter(Boolean), books: [], rows: d.troops && d.troops[i] ? { '병종': d.troops[i] } : {} })), prio: 5 }));
   }
   // 내 덱
   for (const c of state.customDecks) {
@@ -485,6 +669,8 @@ function buildData() {
   // 동일 id 정리
   const seen = {};
   for (const d of decks) { seen[d.id] = (seen[d.id] || 0) + 1; if (seen[d.id] > 1) d.id += '#' + seen[d.id]; }
+  // 겹치는 덱 합치기
+  decks = mergeDupes(decks);
   // 사용 빈도
   for (const d of decks) for (const s of d.slots) {
     s.gen?.opts.forEach(k => G.get(k).used++);
@@ -525,6 +711,10 @@ function buildData() {
   COEXIST = [];
   const groups = {};
   for (const d of decks.filter(d => d.kind === 'coexist')) { const gk = d.src + '|' + d.group; (groups[gk] = groups[gk] || { src: d.src, group: d.group, decks: [] }).decks.push(d); }
+  for (const gr of bandGroups) {
+    const fix = d => deckById(d.id) || d;
+    COEXIST.push({ ...gr, decks: [...new Set(gr.decks.map(fix))], options: gr.options && gr.options.map(o => o.map(fix)) });
+  }
   for (const gr of Object.values(groups)) {
     const m = gr.group.match(/(\d)\s*공존/); const n = m ? +m[1] : gr.decks.length;
     const ci = gr.decks.findIndex(d => d.choice);
@@ -772,7 +962,7 @@ function slotInfo(s) {
   const trait = [r['장비특성'], r['탈것특성']].filter(Boolean).join(' / ');
   const stat = r['스텟'] || r['스탯'] || '';
   const line = (k, v) => v ? `<div class="si"><span>${k}</span>${esc(v)}</div>` : '';
-  const body = line('병종', troop) + line('병법', s.books.join(' · ')) + line('장비', gear) + line('특성', trait) + line('스탯', stat);
+  const body = line('병종', troop) + line('병법', s.books.join(' · ')) + line('장비', gear) + line('특성', trait) + line('스탯', stat) + line('대체 전법', r['대체 전법']);
   return body ? `<div class="sinfo">${s.subFrom ? `<div class="si muted">대체 무장 · 세팅은 원래 ${esc(s.subFrom)} 기준</div>` : ''}${body}</div>` : '';
 }
 function deckCard(d, a, opts = {}) {
@@ -795,7 +985,7 @@ function deckCard(d, a, opts = {}) {
     return `<div class="slot"><div class="gname ${meet ? 'have' : has ? 'warn' : 'miss'}">${gtxt}</div>${tac || (d.unknownTactics ? '<div class="tac muted">전법 세부 미확인</div>' : '')}${slotInfo(s)}</div>`;
   };
   const more = '';
-  const inLineup = a.lineup.includes(d.id);
+  const inLineup = a.lineup.some(id => resolveId(id) === d.id);
   const S = (ck.missG.length || ck.missT.length) && d.kind !== 'community' && Object.keys(a.generals).length ? deckSubs(d, a) : null;
   const subTag = c => `<span class="tag sub" title="${esc(c.why.join(' · ') || '역할이 비슷함')}">${esc(c.name)}${c.stars != null && c.stars >= 0 ? ` ${c.stars}돌` : ''}</span>`;
   const subLine = (label, arr) => arr.length ? `<div class="small subs"><b>${label}</b> ${arr.map(x => `<span class="miss">${esc(x.miss)}</span> → ${x.list.length ? x.list.map(subTag).join('') : '<span class="muted">보유 중 마땅한 대체 없음</span>'}`).join('<br>')}</div>` : '';
@@ -805,15 +995,16 @@ function deckCard(d, a, opts = {}) {
     ck.missS.length ? `<div class="small warn">돌파·품 부족: ${ck.missS.map(m => `${esc(m.label)} ${esc(m.have)} → ${esc(m.need)}`).join(', ')}</div>` : '',
   ].join('');
   return `<div class="card ${st}">
-    <div class="card-h"><h3>${d.tierLabel ? `<span class="tier">${esc(d.tierLabel)}</span>` : ''}${esc(d.name)}</h3><span class="status ${st}">${d.unknownTactics && st === 'ok' ? '무장 보유' : STATUS_LABEL[st]}</span></div>
+    <div class="card-h"><h3>${d.tierLabel ? `<span class="tier">${esc(d.tierLabel)}</span>` : ''}${esc(d.name)}${d.aka ? `<span class="small muted" title="다른 출처에서 부르는 이름"> = ${d.aka.map(esc).join(', ')}</span>` : ''}</h3><span class="status ${st}">${d.unknownTactics && st === 'ok' ? '무장 보유' : STATUS_LABEL[st]}</span></div>
     <div><span class="tag">${esc(KIND_LABEL[d.kind] || d.kind)}</span>${(() => { const bf = breakFit(d, a), av = deckAvgStars(d, a); if (!bf.bt || bf.bt === 'all') return ''; const lab = bf.bt === 'high' ? '고돌 덱' : '명함·저돌 가능'; return `<span class="tag brk ${bf.fit || ''}" title="${bf.fit === 'warn' ? '고돌파 권장 덱인데 내 돌파 수준이 낮습니다' : '내 돌파 수준에 맞는 덱'}${av != null ? ` · 이 덱 무장 평균 ${av.toFixed(1)}돌` : ''}">${lab}${bf.fit === 'warn' ? ' ⚠' : bf.fit === 'good' ? ' ✓' : ''}</span>`; })()}${d.group ? `<span class="tag">${esc(d.group)}</span>` : ''}${d.choiceTag ? `<span class="tag">${esc(d.choiceTag)}</span>` : ''}${d.formation ? `<span class="tag">${esc(d.formation)}</span>` : ''}${d.url ? `<a class="tag" href="${esc(d.url)}" target="_blank" rel="noopener">출처</a>` : ''}</div>
     ${d.subNotes ? `<div class="small warn">대체 구성: ${d.subNotes.map(esc).join(', ')}</div>` : ''}
     ${d.desc ? `<div class="desc">${esc(d.desc)}</div>` : ''}
     <div class="slots">${d.slots.map(slot).join('')}</div>
     ${missLine}
     ${d.note ? `<div class="desc">${esc(d.note)}</div>` : ''}
+    ${d.extra ? `<details class="more"><summary class="small">다른 출처 설명 ${d.extra.length}개</summary>${d.extra.map(x => `<div class="desc"><b>${esc(x.src)}</b>${key(x.name) !== key(d.name) ? ` (${esc(x.name)})` : ''}: ${esc(x.text)}</div>`).join('')}</details>` : ''}
     ${more}
-    ${opts.noActions ? '' : `<div class="card-f"><span class="small muted">${esc(d.src)}</span><span>
+    ${opts.noActions ? '' : `<div class="card-f"><span class="small muted" title="${d.srcs ? '같은 덱이 여러 출처에 있어 하나로 합쳤습니다' : ''}">${esc((d.srcs || [d.src]).join(' · '))}</span><span>
       ${d.customId ? `<button class="btn small" data-act="delCustom" data-id="${esc(d.customId)}">삭제</button>` : ''}
       <button class="btn small ${inLineup ? '' : 'primary'}" data-act="toggleLineup" data-id="${esc(d.id)}">${inLineup ? '편성에서 빼기' : `${esc(a.name)} 편성에 추가`}</button></span></div>`}
   </div>`;
@@ -825,7 +1016,7 @@ function viewDecks() {
   const srcF = { main: d => d.kind === 'tier' || d.kind === 'variant' || d.kind === 'simple' || d.kind === 'custom' || d.kind === 'research', sheet: d => d.kind === 'tier' || d.kind === 'variant', research: d => d.kind === 'research', all: () => true, tier: d => d.kind === 'tier', variant: d => d.kind === 'variant', coexist: d => d.kind === 'coexist', community: d => d.kind === 'community', custom: d => d.kind === 'custom' || d.kind === 'simple' };
   const q = key(u.q);
   let list = DECKS.filter(srcF[u.src] || srcF.main).map(d => ({ d, c: check(d, a) }));
-  if (q) list = list.filter(({ d }) => key(d.name + d.group + d.slots.map(s => (s.gen ? s.gen.opts.map(gName).join('') : '') + s.tactics.map(t => t.opts.map(tName).join('')).join('')).join('')).includes(q));
+  if (q) list = list.filter(({ d }) => key(d.name + (d.aka || []).join('') + d.group + d.slots.map(s => (s.gen ? s.gen.opts.map(gName).join('') : '') + s.tactics.map(t => t.opts.map(tName).join('')).join('')).join('')).includes(q));
   const cnt = { ok: 0, stars: 0, tactic: 0, general: 0 }; list.forEach(x => cnt[x.c.status]++);
   if (u.status !== 'all') list = list.filter(x => x.c.status === u.status);
   list.sort((x, y) => STATUS_ORDER[x.c.status] - STATUS_ORDER[y.c.status] || (x.d.tier ?? 9) - (y.d.tier ?? 9));
@@ -1196,9 +1387,9 @@ function viewOwn() {
 function findDeck(id, a) {
   if (a.locked && a.locked[id]) { const L = lockedDeck(id, a); if (L) return L; }
   if (id.startsWith('filler:')) return fillerDeck(id, a);
-  const d = DECKS.find(x => x.id === id); if (d) return d;
+  const d = deckById(id); if (d) return d;
   const i = id.indexOf('~sub~'); if (i < 0) return null;
-  const base = DECKS.find(x => x.id === id.slice(0, i)); return base ? subVariant(base, a) : null;   // 대체 구성은 저장하지 않고 다시 계산
+  const base = deckById(id.slice(0, i)); return base ? subVariant(base, a) : null;   // 대체 구성은 저장하지 않고 다시 계산
 }
 function lineupDecks(a) { return a.lineup.map(id => findDeck(id, a)).filter(Boolean); }
 function lineupConflicts(a) {
@@ -1232,7 +1423,7 @@ const REAL_KINDS = ['tier', 'variant', 'coexist', 'simple', 'custom', 'research'
 function lockedDeck(id, a) {
   const gens = a.locked[id]; if (!gens) return null;
   const baseId = id.startsWith('filler:') ? null : id.split('~sub~')[0];
-  const base = baseId ? DECKS.find(x => x.id === baseId) : fillerDeck(id, a);
+  const base = baseId ? deckById(baseId) : fillerDeck(id, a);
   if (!base) return null;
   const v = JSON.parse(JSON.stringify({ ...base, slots: base.slots.map(sl => ({ ...sl, gen: sl.gen && { ...sl.gen }, tactics: sl.tactics.map(t => ({ ...t })) })) }));
   const notes = [];
@@ -1448,7 +1639,8 @@ function viewData() {
   const tabsRows = sh.tabs.map((t, i) => `<tr>
     <td><input value="${esc(t.name)}" data-tabcfg="${i}" data-f="name"></td>
     <td><input value="${esc(t.gid)}" data-tabcfg="${i}" data-f="gid" placeholder="비우면 탭 이름으로 찾음"></td>
-    <td><select data-tabcfg="${i}" data-f="kind">${['tier', 'variant', 'coexist', 'simple', 'roster'].map(k => `<option value="${k}" ${t.kind === k ? 'selected' : ''}>${KIND_LABEL[k]}</option>`).join('')}</select></td>
+    <td><input value="${esc(t.sid || '')}" data-tabcfg="${i}" data-f="sid" placeholder="비우면 위 시트"></td>
+    <td><select data-tabcfg="${i}" data-f="kind">${['tier', 'variant', 'coexist', 'band', 'simple', 'roster'].map(k => `<option value="${k}" ${t.kind === k ? 'selected' : ''}>${KIND_LABEL[k]}</option>`).join('')}</select></td>
     <td><button class="btn small" data-act="delTab" data-i="${i}">✕</button></td></tr>`).join('');
   const counts = {}; DECKS.forEach(d => counts[d.kind] = (counts[d.kind] || 0) + 1);
   return `
@@ -1456,7 +1648,7 @@ function viewData() {
   <div class="hint small">시트를 고치면 여기서 <b>지금 업데이트</b>를 눌러 최신 내용을 받아옵니다. 시트는 <b>링크가 있는 모든 사용자: 뷰어</b>로 공유되어 있어야 합니다.
   내 시트를 쓰려면 예시 시트를 <b>파일 → 사본 만들기</b>로 복사한 뒤 링크를 아래에 붙여넣으세요. 탭 gid는 시트 URL 끝의 <code>#gid=</code> 값이고, 비워두면 탭 이름으로 찾습니다.</div>
   <div class="fld"><label>시트 링크 또는 ID</label><input id="sheetUrl" value="https://docs.google.com/spreadsheets/d/${esc(sh.id)}/"></div>
-  <table class="tabs-cfg"><tr><th>탭 이름</th><th>gid</th><th>형식</th><th></th></tr>${tabsRows}</table>
+  <table class="tabs-cfg"><tr><th>탭 이름</th><th>gid</th><th>다른 시트 ID</th><th>형식</th><th></th></tr>${tabsRows}</table>
   <div class="bar" style="margin-top:8px">
     <button class="btn" data-act="addTab">탭 추가</button>
     <button class="btn" data-act="resetSheet">기본값으로</button>
@@ -1541,7 +1733,7 @@ async function sync() {
   const msg = $('#syncMsg'); msg.textContent = '불러오는 중…';
   try {
     const tabs = [];
-    for (const t of state.sheet.tabs) { msg.textContent = `불러오는 중… ${t.name}`; tabs.push({ ...t, grid: await gvizGrid(id, t) }); }
+    for (const t of state.sheet.tabs) { msg.textContent = `불러오는 중… ${t.name}`; tabs.push({ ...t, grid: await gvizGrid(t.sid || id, t) }); }
     cache = { sheetId: id, fetchedAt: new Date().toLocaleString('ko-KR'), tabs };
     save(LS_CACHE, cache);
     buildData(); render(); toast(`업데이트 완료: 덱 ${DECKS.length}개`);
@@ -1592,7 +1784,7 @@ document.addEventListener('click', e => {
     case 'addTac': { const v = $('#newTac').value.trim(); if (!v) return; const ent = reg(T, v); a.tactics[ent.key] = 1; ent.fixed = true; break; }
     case 'clearOwn': if (!confirm(`${a.name}의 ${state.ui.ownTab === 'generals' ? '무장' : '전법'} 보유 표시를 모두 해제할까요?`)) return; if (state.ui.ownTab === 'generals') a.generals = {}; else a.tactics = {}; break;
     case 'bulkApply': return bulkApply();
-    case 'toggleLineup': { const i = a.lineup.indexOf(b.dataset.id); if (i >= 0) a.lineup.splice(i, 1); else { a.lineup.push(b.dataset.id); toast(`${a.name} 편성에 추가 (${a.lineup.length}/${a.squads})`); } break; }
+    case 'toggleLineup': { const i = a.lineup.findIndex(id => resolveId(id) === b.dataset.id); if (i >= 0) a.lineup.splice(i, 1); else { a.lineup.push(b.dataset.id); toast(`${a.name} 편성에 추가 (${a.lineup.length}/${a.squads})`); } break; }
     case 'luDel': ai.lineup = ai.lineup.filter(x => x !== b.dataset.id); if (ai.locked) delete ai.locked[b.dataset.id]; break;
     case 'luLock': {
       const id = b.dataset.id; ai.locked = ai.locked || {};
@@ -1776,5 +1968,5 @@ function showGate(onOk) {
 // ───────────────────────── 시작 ─────────────────────────
 function start() { start._done = true; buildData(); render(); Cloud.paintStatus(); Cloud.pull(); }
 if (isAuthed()) start(); else showGate(start);
-window.__tk3 = { get DECKS() { return DECKS; }, get COEXIST() { return COEXIST; }, G, T, check, solve, Cloud, iconStars, ringStars, ocrMatch, state: () => state };
+window.__tk3 = { get DECKS() { return DECKS; }, get COEXIST() { return COEXIST; }, G, T, check, solve, planLineup, realizations, subVariant, fits, Cloud, iconStars, ringStars, ocrMatch, state: () => state };
 })();
