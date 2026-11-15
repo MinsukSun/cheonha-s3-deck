@@ -285,11 +285,6 @@
      "owned": true,
      "stars": 2
     },
-    "연의원소": {
-     "owned": true,
-     "stars": 0,
-     "grade": 0
-    },
     "연의장료": {
      "owned": true,
      "stars": 0,
@@ -376,6 +371,11 @@
      "grade": 0
     },
     "황보숭": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
+    },
+    "연의원소": {
      "owned": true,
      "stars": 0,
      "grade": 0
@@ -952,6 +952,6 @@
   ],
   "v": 2
  },
- "rev": 283,
- "savedAt": "2026-11-15T21:15:11.669Z"
+ "rev": 284,
+ "savedAt": "2026-11-15T21:15:46.439Z"
 }
