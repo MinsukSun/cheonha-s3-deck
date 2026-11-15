@@ -299,6 +299,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "주유": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {
@@ -854,6 +859,6 @@
   ],
   "v": 2
  },
- "rev": 249,
- "savedAt": "2026-11-12T04:36:03.375Z"
+ "rev": 250,
+ "savedAt": "2026-11-15T21:02:55.220Z"
 }
