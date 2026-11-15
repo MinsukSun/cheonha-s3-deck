@@ -576,7 +576,10 @@
    },
    "server": "normal",
    "allowSub": false,
-   "locked": {}
+   "locked": {},
+   "yeonui": {
+    "공손찬": "base"
+   }
   },
   {
    "id": "83vcu2sn",
@@ -956,6 +959,6 @@
   ],
   "v": 2
  },
- "rev": 295,
- "savedAt": "2026-11-15T21:48:43.164Z"
+ "rev": 296,
+ "savedAt": "2026-11-15T22:03:34.443Z"
 }
