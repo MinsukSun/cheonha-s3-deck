@@ -969,8 +969,8 @@ function renderAcctSwitch() {
 const FAC_CLS = { 위: 'wei', 촉: 'shu', 오: 'wu', 군: 'qun' };
 const TROOP_ABBR = { 기병: '기', 방패병: '방', 궁병: '궁', 창병: '창' };
 function genFac(k) {
-  const e = G.get(k) || G.get(yeonBase(k)) || {};
-  return FAC_CLS[e.fac] || 'none';
+  const e = G.get(k) || {}, b = G.get(yeonBase(k)) || {};
+  return FAC_CLS[e.fac || b.fac] || 'none';
 }
 // 타일에 쓸 이름: 'SP 제갈량' → '제갈량', '연의 원소' → '원소'
 const avName = k => String(gName(k)).replace(/^연의\s*/, '').replace(/^SP\s*/i, '');
@@ -1636,21 +1636,107 @@ function pullPanel(a, i) {
     <button class="btn small" data-act="pull" data-a="${i}" ${c && c.busy ? 'disabled' : ''}>${c && c.busy ? '계산 중…' : '뽑기 추천 계산'}</button>${list}
   </details>`;
 }
+// ───────── 편성 전법 배분: 직접 고른 전법(a.tacPick) + 나머지는 추천 순서대로 ─────────
+// a.tacPick[덱 id]['무장자리:전법칸'] = 전법 key. 비어 있으면 그 칸의 추천 전법(대체안 순서) 중 남은 것을 자동으로 고릅니다.
+// 반환: plan[덱 id] = { gens: [무장 key|null], cells: { 'si:ti': { k, rec, picked, over, users } }, diffs: [...] }
+function tacPlan(a, decks) {
+  const picks = a.tacPick || {}, use = {}, who = {}, plan = {}, usedP = new Set();
+  const add = (k, label) => { use[k] = (use[k] || 0) + 1; (who[k] = who[k] || []).push(label); };
+  // 1) 무장: 앞 부대부터 보유·미사용인 첫 무장
+  for (const d of decks) {
+    const gens = d.slots.map(s => {
+      if (!s.gen) return null;
+      const k = s.gen.opts.find(x => ownsG(a, x) && !usedP.has(person(x))) || null;
+      if (k) usedP.add(person(k)); return k;
+    });
+    plan[d.id] = { gens, cells: {}, diffs: [] };
+  }
+  const cellsOf = d => d.slots.flatMap((s, si) => s.tactics.map((t, ti) => ({ s, si, t, ti, cid: `${si}:${ti}` })));
+  // 2) 직접 고른 전법 먼저 자리 잡기
+  for (const d of decks) for (const c of cellsOf(d)) {
+    const k = (picks[d.id] || {})[c.cid];
+    if (k) { plan[d.id].cells[c.cid] = { k, picked: true }; add(k, d.name); }
+  }
+  // 3) 나머지 칸: 추천 순서대로 남은 것 → 없으면 보유한 첫 대체안(겹침) → 없으면 미보유
+  for (const d of decks) for (const c of cellsOf(d)) {
+    if (plan[d.id].cells[c.cid]) continue;
+    const sameGen = cellsOf(d).filter(o => o.si === c.si && o.cid !== c.cid).map(o => (plan[d.id].cells[o.cid] || {}).k);
+    const ok = c.t.opts.filter(k => tCount(a, k) > 0 && !sameGen.includes(k));
+    const k = ok.find(k => (use[k] || 0) < tCount(a, k)) || ok[0] || null;
+    plan[d.id].cells[c.cid] = { k };
+    if (k) add(k, d.name);
+  }
+  // 4) 겹침·추천과 다른 점
+  for (const d of decks) for (const c of cellsOf(d)) {
+    const cell = plan[d.id].cells[c.cid], rec = c.t.opts[0];
+    cell.rec = rec; cell.alt = c.t.opts;
+    cell.over = !!cell.k && (use[cell.k] || 0) > tCount(a, cell.k);
+    cell.users = cell.k ? who[cell.k].filter(n => n !== d.name) : [];
+    cell.miss = !cell.k;
+    if (cell.k && cell.k !== rec) {
+      const gk = plan[d.id].gens[c.si] || (c.s.gen && c.s.gen.opts[0]);
+      plan[d.id].diffs.push({ cid: c.cid, gen: gName(gk), from: rec, to: cell.k, listed: c.t.opts.includes(cell.k), picked: cell.picked });
+    }
+  }
+  return plan;
+}
+// 전법 칸 고르기: 추천 대체안 → 같은 유형·특성 → 나머지 보유 전법
+function tacSelect(a, d, cid, cell, ai, slot) {
+  const rec = cell.alt || [], cur = cell.k, e0 = T.get(cell.rec) || {};
+  const owned = [...T.values()].filter(e => tCount(a, e.key) > 0);
+  const lab = e => `${e.name}${e.ttype ? ` · ${e.ttype}` : ''}${e.trait ? `·${e.trait}` : ''}${tCount(a, e.key) > 1 ? ' ×2' : ''}`;
+  const opt = e => `<option value="${esc(e.key)}" ${e.key === cur ? 'selected' : ''}>${esc(lab(e))}</option>`;
+  const recE = rec.map(k => T.get(k)).filter(e => e && tCount(a, e.key) > 0);
+  const near = owned.filter(e => !rec.includes(e.key) && e.ttype === e0.ttype && e.trait === e0.trait).sort(byKoName);
+  const rest = owned.filter(e => !rec.includes(e.key) && !near.includes(e)).sort((x, y) => (x.ttype || '').localeCompare(y.ttype || '') || byKoName(x, y));
+  const curMissing = cur && !owned.some(e => e.key === cur) ? `<option value="${esc(cur)}" selected>${esc(tName(cur))} (미보유)</option>` : '';
+  return `<select class="tsel" data-act-input="tacPick" data-a="${ai}" data-id="${esc(d.id)}" data-cell="${cid}" title="전법 직접 고르기">
+    <option value="">자동 (추천 순서${cell.picked ? '' : ` → ${esc(cur ? tName(cur) : '없음')}`})</option>${curMissing}
+    ${recE.length ? `<optgroup label="추천·자료 대체안">${recE.map(opt).join('')}</optgroup>` : ''}
+    ${near.length ? `<optgroup label="같은 ${esc([e0.ttype, e0.trait].filter(Boolean).join('·'))}">${near.map(opt).join('')}</optgroup>` : ''}
+    <optgroup label="그 밖의 보유 전법">${rest.map(opt).join('')}</optgroup></select>`;
+}
+
 function viewLineup() {
-  const cols = state.accounts.map((a, i) => {
-    const decks = lineupDecks(a), conf = lineupConflicts(a), mains = Math.min(a.mainCount ?? 3, a.squads || 5);
-    const item = (d, idx) => {
-      const c = conf[d.id], locked = !!(a.locked || {})[d.id];
-      const role = idx < mains ? `메인 ${idx + 1}` : `보조 ${idx - mains + 1}`;
-      return `<div class="lu-item ${c.ok ? '' : 'conflict'} ${idx < mains ? 'main' : 'sup'} ${d.kind === 'filler' ? 'filler' : ''}"><div class="row"><b><span class="role">${role}</span>${d.tierLabel ? `<span class="tier">${esc(d.tierLabel)}</span>` : ''}${esc(d.name)}${locked ? ' <span class="tag">고정</span>' : ''}</b>
-        <span><button class="btn small" data-act="luLock" data-a="${i}" data-id="${esc(d.id)}" title="${locked ? '고정 해제' : '이 부대 무장 고정: 다시 편성해도 무장은 그대로, 전법만 다시 고름'}">${locked ? '🔒' : '🔓'}</button> <button class="btn small" data-act="luUp" data-a="${i}" data-id="${esc(d.id)}">▲</button> <button class="btn small" data-act="luDel" data-a="${i}" data-id="${esc(d.id)}">✕</button></span></div>
-        ${d.formation || d.subNotes ? `<div class="small muted">${d.formation ? esc(d.formation) : ''}${d.subNotes ? ` · 대체: ${d.subNotes.map(esc).join(', ')}` : ''}</div>` : ''}
-        ${d.kind === 'filler' ? `<div class="small warn">${esc(d.note)}</div>` : ''}
-        <div class="lu-slots">${d.slots.map(s => { if (!s.gen) return ''; const k = s.gen.opts.find(x => ownsG(a, x)); return `<div class="slot"><div class="face">${avatar(k || s.gen.opts[0], { a, size: 'sm', troop: s.gen.troop || (s.rows || {})['병종'], mark: k ? '' : 'miss' })}</div><div class="gname">${esc(k ? gName(k) : s.gen.opts.map(gName).join('/'))}${k ? `<span class="small"> ${starsOf(a, k)}돌</span>` : ''}</div>${s.tactics.map(t => { const h = t.opts.find(x => tCount(a, x) > 0); return `<div class="tac ${h ? '' : 'miss'}">${tacLabel(h ? [h] : t.opts)}</div>`; }).join('')}${slotInfo(s)}</div>`; }).join('')}</div>
-        ${c.ok ? '' : `<div class="small miss">${c.why.map(esc).join(', ')}</div>`}</div>`;
-    };
-    const total = decks.reduce((sc, d, idx) => sc + deckScore(d, a) * (idx < mains ? 1 : 0.6), 0);
-    return `<div class="card"><div class="card-h"><h3>${esc(a.name)}</h3><span class="small muted">${decks.length}/${a.squads || 5} 부대 · 편성 점수 ${total.toFixed(1)}</span></div>
+  const i = state.active, a = acct();
+  const decks = lineupDecks(a), conf = lineupConflicts(a), plan = tacPlan(a, decks), mains = Math.min(a.mainCount ?? 3, a.squads || 5);
+  let overN = 0, diffN = 0;
+  const item = (d, idx) => {
+    const c = conf[d.id], locked = !!(a.locked || {})[d.id], P = plan[d.id];
+    const role = idx < mains ? `메인 ${idx + 1}` : `보조 ${idx - mains + 1}`;
+    const tacBad = Object.values(P.cells).some(x => x.over || x.miss);
+    const genWhy = c.ok ? [] : c.why.filter(w => !/부족$|전법 미보유/.test(w));
+    const bad = tacBad || genWhy.length;
+    overN += Object.values(P.cells).filter(x => x.over).length; diffN += P.diffs.length;
+    const slotHtml = d.slots.map((s, si) => {
+      if (!s.gen) return '';
+      const k = P.gens[si];
+      const tacs = s.tactics.map((t, ti) => {
+        const cid = `${si}:${ti}`, cell = P.cells[cid];
+        const cls = cell.miss ? 'miss' : cell.over ? 'over' : cell.k !== cell.rec ? 'changed' : '';
+        const note = cell.miss ? `<div class="tnote miss">보유한 추천 전법 없음 — 아래에서 고르세요</div>`
+          : cell.over ? `<div class="tnote miss">겹침: ${esc(cell.users.join(', ') || '같은 부대')}에서도 사용 (보유 ${tCount(a, cell.k)}개)</div>`
+          : cell.k !== cell.rec ? `<div class="tnote">추천: <s>${esc(tName(cell.rec))}</s>${(cell.alt || []).includes(cell.k) ? ' · 자료 대체안' : ' · 직접 변경'}</div>` : '';
+        return `<div class="tac ${cls}">${cell.k ? tacLabel([cell.k]) : `<span class="miss">${esc(t.opts.map(tName).join(' / '))}</span>`}${note}${tacSelect(a, d, cid, cell, i, s)}</div>`;
+      }).join('');
+      return `<div class="slot"><div class="face">${avatar(k || s.gen.opts[0], { a, size: 'sm', troop: s.gen.troop || (s.rows || {})['병종'], mark: k ? '' : 'miss' })}</div><div class="gname">${esc(k ? gName(k) : s.gen.opts.map(gName).join('/'))}${k ? `<span class="small"> ${starsOf(a, k)}돌${gradeOf(a, k) ? ` ${gradeOf(a, k)}품` : ''}</span>` : ''}</div>${tacs}${slotInfo(s)}</div>`;
+    }).join('');
+    const diffLine = P.diffs.length ? `<div class="small diffs"><b>추천과 다른 전법 ${P.diffs.length}개</b> ${P.diffs.map(x => `<span class="tag ${x.listed ? '' : 'mine'}">${esc(x.gen)}: ${esc(tName(x.from))} → ${esc(tName(x.to))}</span>`).join('')}${Object.keys((a.tacPick || {})[d.id] || {}).length ? ` <button class="btn small" data-act="tacReset" data-a="${i}" data-id="${esc(d.id)}">직접 고른 전법 되돌리기</button>` : ''}</div>` : '';
+    return `<div class="lu-item ${bad ? 'conflict' : ''} ${idx < mains ? 'main' : 'sup'} ${d.kind === 'filler' ? 'filler' : ''}"><div class="row"><b><span class="role">${role}</span>${d.tierLabel ? `<span class="tier">${esc(d.tierLabel)}</span>` : ''}${esc(d.name)}${locked ? ' <span class="tag">고정</span>' : ''}</b>
+      <span><button class="btn small" data-act="luLock" data-a="${i}" data-id="${esc(d.id)}" title="${locked ? '고정 해제' : '이 부대 무장 고정: 다시 편성해도 무장은 그대로, 전법만 다시 고름'}">${locked ? '🔒' : '🔓'}</button> <button class="btn small" data-act="luUp" data-a="${i}" data-id="${esc(d.id)}">▲</button> <button class="btn small" data-act="luDel" data-a="${i}" data-id="${esc(d.id)}">✕</button></span></div>
+      ${d.formation || d.subNotes ? `<div class="small muted">${d.formation ? esc(d.formation) : ''}${d.subNotes ? ` · 대체: ${d.subNotes.map(esc).join(', ')}` : ''}</div>` : ''}
+      ${d.kind === 'filler' ? `<div class="small warn">${esc(d.note)}</div>` : ''}
+      ${diffLine}
+      <div class="lu-slots">${slotHtml}</div>
+      ${genWhy.length ? `<div class="small miss">${genWhy.map(esc).join(', ')}</div>` : ''}</div>`;
+  };
+  const body = decks.map(item).join('');
+  const total = decks.reduce((sc, d, idx) => sc + deckScore(d, a) * (idx < mains ? 1 : 0.6), 0);
+  return `<div class="hint small"><b>${esc(a.name)}</b>의 편성입니다. 다른 계정은 위쪽 계정 버튼으로 바꿉니다.
+    <b>자동 추천 편성</b>은 부대 수(기본 5)를 <b>메인</b>(기본 3)과 <b>보조</b>로 나눠 채웁니다. 🔒 고정한 부대는 무장을 그대로 두고 전법만 다시 고릅니다.
+    전법 칸 아래 목록에서 <b>전법을 직접 바꿀 수 있습니다</b>. 바꾼 전법은 노란 표시와 함께 <b>추천: <s>원래 전법</s></b>이 보이고, 다른 부대와 수량이 겹치면 빨간색으로 알려줍니다.</div>
+    <div class="card"><div class="card-h"><h3>${esc(a.name)}</h3><span class="small muted">${decks.length}/${a.squads || 5} 부대 · 편성 점수 ${total.toFixed(1)}</span></div>
+      ${decks.length ? `<div class="lu-sum ${overN ? 'bad' : 'ok'}">${overN ? `전법 겹침 ${overN}칸` : '전법 겹침 없음'} · 추천과 다른 전법 ${diffN}칸</div>` : ''}
       <div class="bar" style="margin:8px 0 0">
         ${serverSelect(a, i)} ${breakSelect(a, i)}
         <label class="small">부대 수 <select data-act-input="squads" data-a="${i}">${[1, 2, 3, 4, 5].map(n => `<option ${(a.squads || 5) === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
@@ -1662,14 +1748,9 @@ function viewLineup() {
         <button class="btn small" data-act="luClear" data-a="${i}">비우기(고정 제외)</button>
       </div>
       ${yeonPanel(a, i)}
-      ${decks.length ? decks.map(item).join('') : '<div class="empty small">편성이 비어 있습니다.<br>자동 추천을 누르거나 추천 덱 탭에서 추가하세요.</div>'}
+      ${body || '<div class="empty small">편성이 비어 있습니다.<br>자동 추천을 누르거나 추천 덱 탭에서 추가하세요.</div>'}
       ${pullPanel(a, i)}
     </div>`;
-  });
-  return `<div class="hint small"><b>자동 추천 편성</b>은 부대 수(기본 5)를 <b>메인</b>(기본 3)과 <b>보조</b>로 나눠 채웁니다.
-    ① 🔒 고정한 부대는 무장을 그대로 두고 전법만 지금 보유 기준으로 다시 고릅니다. ② 메인은 티어가 높은 덱부터(대체 무장 1명까지). ③ 보조는 남은 무장·전법으로(대체 무장 2명까지). ④ 그래도 빈 자리는 남은 무장 3명과 각자 자주 쓰는 전법으로 채웁니다.
-    무장(같은 인물의 기본·연의 포함)과 전법 수량(영본 포함)은 부대끼리 겹치지 않습니다. 대상은 티어덱·변칙덱·공존덱·추가 조사·내 덱입니다.</div>
-    <div class="cols">${cols.join('')}</div>`;
 }
 
 // ───────────────────────── 렌더: 공존 프리셋 ─────────────────────────
@@ -1859,6 +1940,7 @@ document.addEventListener('click', e => {
     case 'acct': state.active = +b.dataset.i; break;
     case 'set': state.ui[b.dataset.k] = b.dataset.v; break;
     case 'openDeck': openDeckId = b.dataset.id; break;
+    case 'tacReset': if (ai.tacPick) delete ai.tacPick[b.dataset.id]; break;
     case 'closeDeck': if (e.target.closest('[data-stop]')) return; openDeckId = null; break;
     case 'toggleSub': ai.allowSub = b.checked; break;
     case 'toggleUsedOnly': state.ui.ownUsedOnlyV2 = b.checked; break;
@@ -1984,6 +2066,13 @@ document.addEventListener('change', e => {
   }
   if (!A) return;
   const a = acct();
+  if (A === 'tacPick') {
+    const x = state.accounts[+t.dataset.a], id = t.dataset.id, cid = t.dataset.cell;
+    x.tacPick = x.tacPick || {}; const m = x.tacPick[id] = x.tacPick[id] || {};
+    if (t.value) m[cid] = t.value; else delete m[cid];
+    if (!Object.keys(m).length) delete x.tacPick[id];
+    persist(); render(); return;
+  }
   if (A === 'rename') { a.name = t.value.trim() || a.name; }
   else if (A === 'squads') { state.accounts[+t.dataset.a].squads = +t.value; }
   else if (A === 'mainCount') { state.accounts[+t.dataset.a].mainCount = +t.value; }
