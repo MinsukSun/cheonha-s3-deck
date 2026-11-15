@@ -206,3 +206,17 @@ ol.pull li { margin-bottom: 4px; }
 .deck-pop { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; z-index: 15; overflow: auto; }
 .deck-pop .card { width: 100%; max-width: 640px; }
 @media (max-width: 520px) { .tier-row { grid-template-columns: 1fr; } .tier-lab { flex-direction: row; gap: 8px; justify-content: flex-start; padding: 6px 10px; } .tier-lab span { margin: 0; } }
+
+/* ── 전법 특성 배지 · 설명 목록 ── */
+.trb { font-style: normal; font-size: 10px; font-weight: 700; padding: 0 4px; border-radius: 4px; margin-left: 4px; vertical-align: 1px; white-space: nowrap; color: #fff; background: #8a857c; }
+.trb.wpn { background: #a8452c; } .trb.stg { background: #4a55b0; } .trb.mix { background: #1f8a84; } .trb.def { background: #5b6b7e; } .trb.sup { background: #a07a1c; } .trb.heal { background: #2f8a4a; }
+.chip.on .trb { box-shadow: 0 0 0 1px rgba(255,255,255,.5); }
+.tlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px; }
+.trow { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.trow.on { border-color: var(--chip-on); }
+.trow.dim { opacity: .75; }
+.trow .chip { align-self: flex-start; }
+.trow .tmeta { display: flex; align-items: center; gap: 6px; }
+.trow .tmeta .trb { margin-left: 0; }
+.trow .tdesc { font-size: 12px; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
+@media (max-width: 420px) { .tlist { grid-template-columns: 1fr; } }

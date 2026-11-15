@@ -691,6 +691,9 @@ function buildData() {
     const e = T.get(AL[k] || k) || reg(T, n);
     Object.assign(e, { ttype: ty, trait: tr, tseason: se, name: n });   // 표기는 유형표의 공식 이름(띄어쓰기 포함)으로 통일
   }
+  // 전법 효과 설명
+  const DESC = {}; for (const [n, d] of Object.entries(window.TACTIC_DESC || {})) DESC[key(n)] = d;
+  for (const e of T.values()) e.tdesc = DESC[e.key] || DESC[key(e.name)] || '';
   decks.forEach(extractStarReq);
   // 같은 무장 3명 조합인데 설명에 돌파 조건이 없는 덱은, 다른 탭의 같은 조합 덱에 적힌 조건 중 가장 낮은 값을 따릅니다.
   const sig = d => d.slots.map(s => (s.gen ? s.gen.opts[0] : '')).sort().join('+');
@@ -992,10 +995,15 @@ const TTYPE_CLS = { 지휘: 'cmd', 액티브: 'act', 패시브: 'pas', 추격: '
 function ticon(type) {
   return `<svg class="ti ${TTYPE_CLS[type] || 'unk'}" viewBox="0 0 24 24" aria-hidden="true">${TICON[type] || '<circle cx="12" cy="12" r="4"/>'}</svg>`;
 }
-// 전법 이름 + 유형 아이콘 (opts는 대체안 목록, have는 보유 여부)
+// 전법 특성(병기·책략·문무·방어·보조·치유) 배지
+const TRAITS = ['병기', '책략', '문무', '방어', '보조', '치유'];
+const TRAIT_CLS = { 병기: 'wpn', 책략: 'stg', 문무: 'mix', 방어: 'def', 보조: 'sup', 치유: 'heal' };
+const traitBadge = tr => (tr ? `<i class="trb ${TRAIT_CLS[tr] || ''}">${esc(tr)}</i>` : '');
+const tacTip = k => { const e = T.get(k) || {}; return [[e.ttype, e.trait, e.tseason].filter(Boolean).join(' · '), e.tdesc].filter(Boolean).join('\n'); };
+// 전법 이름 + 유형 아이콘 + 특성 배지 (opts는 대체안 목록). 마우스를 올리면 효과 설명
 function tacLabel(keys, o = {}) {
   const e = T.get(keys[0]) || {};
-  return `<span class="tl ${o.cls || ''}" title="${esc([e.ttype, e.trait].filter(Boolean).join(' · '))}">${ticon(e.ttype)}<span>${keys.map(k => esc(tName(k))).join(' / ')}</span>${o.copy ? ' <span class="tag">영본</span>' : ''}</span>`;
+  return `<span class="tl ${o.cls || ''}" title="${esc(keys.map(tacTip).join('\n\n'))}">${ticon(e.ttype)}<span>${keys.map(k => esc(tName(k))).join(' / ')}${traitBadge(e.trait)}</span>${o.copy ? ' <span class="tag">영본</span>' : ''}</span>`;
 }
 // 티어 숫자 → 티어표 줄
 const TIER_ROWS = [['T0+', t => t < 0.4], ['T0', t => t < 0.75], ['T1', t => t < 1.2], ['T2', t => t < 1.7], ['T3', () => true]];
@@ -1052,6 +1060,7 @@ function deckCard(d, a, opts = {}) {
     <div class="slots">${d.slots.map(slot).join('')}</div>
     ${missLine}
     ${d.note ? `<div class="desc">${esc(d.note)}</div>` : ''}
+    ${(() => { const ks = [...new Set(d.slots.flatMap(sl => sl.tactics.flatMap(t => t.opts)))].filter(k => (T.get(k) || {}).tdesc); return ks.length ? `<details class="more"><summary class="small">전법 설명 ${ks.length}개</summary>${ks.map(k => { const e = T.get(k); return `<div class="desc">${ticon(e.ttype)} <b>${esc(e.name)}</b>${traitBadge(e.trait)} <span class="muted">${esc(e.ttype || '')}</span><br>${esc(e.tdesc)}</div>`; }).join('')}</details>` : ''; })()}
     ${d.extra ? `<details class="more"><summary class="small">다른 출처 설명 ${d.extra.length}개</summary>${d.extra.map(x => `<div class="desc"><b>${esc(x.src)}</b>${key(x.name) !== key(d.name) ? ` (${esc(x.name)})` : ''}: ${esc(x.text)}</div>`).join('')}</details>` : ''}
     ${more}
     ${opts.noActions ? '' : `<div class="card-f"><span class="small muted" title="${d.srcs ? '같은 덱이 여러 출처에 있어 하나로 합쳤습니다' : ''}">${esc((d.srcs || [d.src]).join(' · '))}</span><span>
@@ -1445,13 +1454,25 @@ function viewOwn() {
   if (q) tacs = tacs.filter(e => e.key.includes(q));
   const chip = e => {
     const n = tCount(a, e.key);
-    const tip = [e.ttype, e.trait, e.tseason].filter(Boolean).join(' · ') + (e.aliases ? `\n다른 자료 표기: ${[...e.aliases].join(', ')}` : '');
-    return `<button class="chip ${n ? 'on' : ''} ${n > 1 ? 'two' : ''} ${e.used ? '' : 'dim'}" data-act="tac" data-k="${esc(e.key)}"${tip ? ` title="${esc(tip)}"` : ''}>${ticon(e.ttype)}${esc(e.name)}${e.aliases ? '<span class="n">*</span>' : ''}${n > 1 ? '<span class="st">×2</span>' : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
+    const tip = tacTip(e.key) + (e.aliases ? `\n다른 자료 표기: ${[...e.aliases].join(', ')}` : '');
+    if (u.ownTacView === 'list') return `<div class="trow ${n ? 'on' : ''} ${e.used ? '' : 'dim'}"><button class="chip ${n ? 'on' : ''} ${n > 1 ? 'two' : ''}" data-act="tac" data-k="${esc(e.key)}">${ticon(e.ttype)}${esc(e.name)}${n > 1 ? '<span class="st">×2</span>' : ''}</button>
+      <div class="tmeta">${traitBadge(e.trait)}<span class="small muted">${esc([e.ttype, e.tseason].filter(Boolean).join(' · '))}${e.used ? ` · 덱 ${e.used}개` : ''}</span></div><div class="tdesc">${esc(e.tdesc || '설명 없음')}</div></div>`;
+    return `<button class="chip ${n ? 'on' : ''} ${n > 1 ? 'two' : ''} ${e.used ? '' : 'dim'}" data-act="tac" data-k="${esc(e.key)}"${tip ? ` title="${esc(tip)}"` : ''}>${ticon(e.ttype)}${esc(e.name)}${traitBadge(e.trait)}${e.aliases ? '<span class="n">*</span>' : ''}${n > 1 ? '<span class="st">×2</span>' : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
   };
   const TYPES = ['지휘', '액티브', '패시브', '추격'];
-  const tparts = [...TYPES.map(t => section(`${t} 전법`, tacs.filter(e => e.ttype === t), e => tCount(a, e.key) > 0, chip)),
-    section('유형 미확인', tacs.filter(e => !TYPES.includes(e.ttype)), e => tCount(a, e.key) > 0, chip)].join('');
-  return head + sortBar + `<p class="small muted"><b>보유</b> 모드: 칩을 누르면 보유/해제됩니다(덱 판정은 전법 유무만 봅니다). <b>영본 개수</b> 모드: 누를 때마다 1개 ↔ 2개(영본)로 바뀝니다. 공존덱처럼 같은 전법을 두 부대에 쓰려면 2개가 필요합니다. 유형별(지휘·액티브·패시브·추격)로 나눠 보여주고, 오른쪽 숫자는 그 전법이 쓰이는 덱 수입니다. 칩에 마우스를 올리면 특성·등장 시즌이 보입니다. 기본으로 S1~S3 전체 전법이 나오고, <b>덱에 쓰이는 것만</b>을 켜면 추천 덱에 나오는 전법만 보입니다(흐린 칩 = 덱에 안 쓰임).</p>
+  if (u.ownTrait && u.ownTrait !== 'all') tacs = tacs.filter(e => e.trait === u.ownTrait);
+  if (u.ownTtype && u.ownTtype !== 'all') tacs = tacs.filter(e => e.ttype === u.ownTtype);
+  const box = u.ownTacView === 'list' ? 'tlist' : 'chips', has = e => tCount(a, e.key) > 0;
+  const byTrait = u.ownTacGroup === 'trait';
+  const tparts = (byTrait
+    ? [...TRAITS.map(t => section(`${t} 특성`, tacs.filter(e => e.trait === t), has, chip, box)), section('특성 미확인', tacs.filter(e => !TRAITS.includes(e.trait)), has, chip, box)]
+    : [...TYPES.map(t => section(`${t} 전법`, tacs.filter(e => e.ttype === t), has, chip, box)), section('유형 미확인', tacs.filter(e => !TYPES.includes(e.ttype)), has, chip, box)]).join('');
+  const segOf = (k, opts, def) => `<div class="seg">${opts.map(([v, l]) => `<button data-act="set" data-k="${k}" data-v="${v}" class="${(u[k] || def) === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const tacBar = `<div class="bar"><span class="small muted">묶기</span>${segOf('ownTacGroup', [['type', '유형별'], ['trait', '특성별']], 'type')}
+    <span class="small muted">보기</span>${segOf('ownTacView', [['chips', '칩'], ['list', '설명 목록']], 'chips')}</div>
+    <div class="bar"><span class="small muted">유형</span>${segOf('ownTtype', [['all', '전체'], ...TYPES.map(t => [t, t])], 'all')}
+    <span class="small muted">특성</span>${segOf('ownTrait', [['all', '전체'], ...TRAITS.map(t => [t, t])], 'all')}</div>`;
+  return head + sortBar + tacBar + `<p class="small muted"><b>보유</b> 모드: 칩을 누르면 보유/해제됩니다(덱 판정은 전법 유무만 봅니다). <b>영본 개수</b> 모드: 누를 때마다 1개 ↔ 2개(영본)로 바뀝니다. 공존덱처럼 같은 전법을 두 부대에 쓰려면 2개가 필요합니다. <b>묶기</b>로 유형별(지휘·액티브·패시브·추격) 또는 특성별(병기·책략·문무·방어·보조·치유)로 나누고, 위 버튼으로 유형·특성을 골라 볼 수 있습니다. 칩 옆 색 배지가 특성이고, 오른쪽 숫자는 그 전법이 쓰이는 덱 수입니다. <b>설명 목록</b>을 고르면 전법마다 효과 설명이 보입니다(칩에 마우스를 올려도 보임). 기본으로 S1~S3 전체 전법이 나오고, <b>덱에 쓰이는 것만</b>을 켜면 추천 덱에 나오는 전법만 보입니다(흐린 칩 = 덱에 안 쓰임).</p>
     ${tparts || '<div class="empty">표시할 전법이 없습니다.</div>'}
     <div class="bar" style="margin-top:14px"><input type="text" list="dlTactics" id="newTac" placeholder="목록에 없는 전법 직접 추가"><button class="btn" data-act="addTac">추가</button></div>`;
 }
