@@ -304,6 +304,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "보연사": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {
@@ -859,6 +864,6 @@
   ],
   "v": 2
  },
- "rev": 250,
- "savedAt": "2026-11-15T21:02:55.220Z"
+ "rev": 251,
+ "savedAt": "2026-11-15T21:03:25.488Z"
 }
