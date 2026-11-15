@@ -228,7 +228,8 @@ ol.pull li { margin-bottom: 4px; }
 .tnote { font-size: 11px; color: var(--warn); margin-top: 1px; }
 .tnote.miss { color: var(--bad); font-weight: 600; }
 .tnote s { opacity: .8; }
-.tsel { width: 100%; margin-top: 3px; font-size: 11px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--muted); }
+.tsel { width: 100%; margin-top: 4px; font-size: 14px; line-height: 1.4; min-height: 34px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); }
+@media (max-width: 420px) { .tsel { font-size: 16px; min-height: 40px; } }
 .lu-sum { margin-top: 6px; font-size: 12px; font-weight: 700; padding: 4px 8px; border-radius: 6px; display: inline-block; }
 .lu-sum.ok { background: var(--ok-bg); color: var(--ok); } .lu-sum.bad { background: var(--bad-bg); color: var(--bad); }
 .diffs { margin-top: 4px; line-height: 1.9; }
