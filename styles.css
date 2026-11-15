@@ -143,3 +143,66 @@ details.yeon summary { cursor: pointer; color: var(--muted); }
 .yeon-grid select { margin-left: 4px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
 ol.pull { margin: 8px 0 0; padding-left: 20px; }
 ol.pull li { margin-bottom: 4px; }
+
+/* ── 무장 초상 타일 (진영 색 + 이름) ── */
+:root { --wei: #2f5d9e; --shu: #2f7d4a; --wu: #b0402f; --qun: #a7792a; --none: #6b665d; --pip: #e2552f; }
+.av { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; overflow: hidden;
+  width: 64px; height: 76px; border-radius: 8px; color: #fff; isolation: isolate;
+  background: radial-gradient(circle at 30% 20%, rgba(255,255,255,.28), transparent 55%), linear-gradient(160deg, var(--fc) 0%, color-mix(in srgb, var(--fc) 55%, #000) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); }
+.av::after { content: ""; position: absolute; inset: auto 0 0 0; height: 4px; background: color-mix(in srgb, var(--fc) 60%, #fff); }
+.av.f-wei { --fc: var(--wei); } .av.f-shu { --fc: var(--shu); } .av.f-wu { --fc: var(--wu); } .av.f-qun { --fc: var(--qun); } .av.f-none { --fc: var(--none); }
+.av-n { font-weight: 800; letter-spacing: -.02em; text-shadow: 0 1px 2px rgba(0,0,0,.45); line-height: 1.05; text-align: center; padding: 0 3px; word-break: keep-all; }
+.av-n.l1 { font-size: 30px; } .av-n.l2 { font-size: 22px; } .av-n.l3 { font-size: 17px; } .av-n.l4 { font-size: 13px; }
+.av-b { position: absolute; top: 3px; left: 3px; font-style: normal; font-size: 9px; font-weight: 800; padding: 0 3px; border-radius: 3px; background: rgba(0,0,0,.45); }
+.av-b.sp { background: #f2c14e; color: #3a2a00; }
+.av-t { position: absolute; top: 3px; right: 3px; font-style: normal; font-size: 10px; font-weight: 800; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; background: rgba(0,0,0,.4); }
+.av-s { position: absolute; bottom: 7px; left: 0; right: 0; display: flex; gap: 2px; justify-content: center; }
+.av-s b { width: 7px; height: 7px; border-radius: 2px; transform: rotate(45deg); background: rgba(255,255,255,.28); }
+.av-s b.on { background: var(--pip); box-shadow: 0 0 0 1px rgba(255,255,255,.6); }
+.av-g { position: absolute; bottom: 15px; right: 3px; font-size: 9px; font-weight: 800; color: #f2c14e; text-shadow: 0 1px 1px #000; }
+.av.sm { width: 44px; height: 52px; border-radius: 6px; } .av.sm .av-n.l1 { font-size: 20px; } .av.sm .av-n.l2 { font-size: 15px; } .av.sm .av-n.l3 { font-size: 12px; } .av.sm .av-n.l4 { font-size: 10px; }
+.av.sm .av-b { font-size: 8px; } .av.sm .av-t { width: 13px; height: 13px; font-size: 8px; } .av.sm .av-s b { width: 5px; height: 5px; }
+.av.dim { filter: grayscale(.85) brightness(.85); opacity: .55; }
+.av.miss { filter: grayscale(.9); opacity: .5; }
+.av.warn { box-shadow: inset 0 0 0 2px var(--warn); }
+
+/* ── 전법 유형 아이콘 ── */
+.ti { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; padding: 2px; border-radius: 4px; vertical-align: -3px; }
+.ti.cmd { color: #fff; background: #b8862b; } .ti.act { color: #fff; background: #c4472f; } .ti.pas { color: #fff; background: #3b6db3; } .ti.pur { color: #fff; background: #7a4bb0; } .ti.unk { color: #fff; background: #8a857c; }
+.tl { display: inline-flex; align-items: flex-start; gap: 4px; }
+.tac.miss .ti, .tac.miss .tl { opacity: .6; }
+
+/* ── 보유 관리: 초상 그리드 ── */
+.av-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
+.av-btn { border: 0; background: none; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--ink); }
+.av-btn .cap { font-size: 11px; color: var(--muted); max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-btn.on .cap { color: var(--ok); font-weight: 700; }
+.av-btn:not(.on) .av { filter: grayscale(1) brightness(1.1); opacity: .45; }
+.av-btn.on .av { box-shadow: 0 0 0 2px var(--chip-on), inset 0 0 0 1px rgba(255,255,255,.2); }
+.av-btn.unused .cap { font-style: italic; }
+.chip .ti { margin-right: 4px; }
+
+/* ── 덱 카드 초상 ── */
+.slot .face { display: flex; justify-content: center; margin-bottom: 4px; }
+.slot .gname { text-align: center; }
+
+/* ── 티어표 (믹스커피 배치 참고) ── */
+.tier-list { display: flex; flex-direction: column; gap: 10px; }
+.tier-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; }
+.tier-lab { border-radius: 10px; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 8px 4px; }
+.tier-lab b { font-size: 22px; line-height: 1; } .tier-lab span { font-size: 11px; opacity: .85; margin-top: 4px; }
+.tier-lab.T0p { background: #c0392b; } .tier-lab.T0 { background: #d9822b; } .tier-lab.T1 { background: #7a4bb0; } .tier-lab.T2 { background: #2f6fa8; } .tier-lab.T3 { background: #4f7a5a; } .tier-lab.ref { background: #6b665d; }
+.tier-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(214px, 1fr)); gap: 8px; }
+.tcard { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px; text-align: left; display: flex; flex-direction: column; gap: 4px; box-shadow: var(--shadow); min-width: 0; }
+.tcard:hover { border-color: var(--accent); }
+.tcard .faces { display: flex; gap: 4px; }
+.tcard .faces .av { flex: 1 1 0; width: auto; height: 70px; }
+.tcard .nm { font-weight: 700; font-size: 13px; overflow-wrap: anywhere; }
+.tcard .mt { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; gap: 4px; align-items: center; }
+.tcard.ok { border-color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); }
+.tcard.stars, .tcard.tactic { border-color: var(--warn); }
+.tcard .status { font-size: 10px; padding: 1px 6px; }
+.deck-pop { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; z-index: 15; overflow: auto; }
+.deck-pop .card { width: 100%; max-width: 640px; }
+@media (max-width: 520px) { .tier-row { grid-template-columns: 1fr; } .tier-lab { flex-direction: row; gap: 8px; justify-content: flex-start; padding: 6px 10px; } .tier-lab span { margin: 0; } }

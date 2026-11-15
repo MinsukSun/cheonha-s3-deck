@@ -655,10 +655,18 @@ function buildData() {
   // 추가 조사 덱 (덱 빌더·삼천 데이터 등, 전법까지 있는 것)
   for (const src of window.RESEARCH_DECKS || []) for (const d of src.decks) {
     const tr = parseTier(d.tier ? d.tier + ' x' : 'x');
-    const tier = tr.tier == null ? null : 0.4 + tr.tier * 0.5;  // T0→0.4, T1→0.9, T2→1.4 (시트 티어보다 한 단계 아래로 봄)
+    // 기본: T0→0.4, T1→0.9, T2→1.4 (시트 티어보다 한 단계 아래로 봄). tierMap이 있는 출처는 그 표를 씀.
+    const tier = src.tierMap && d.tier in src.tierMap ? src.tierMap[d.tier] : tr.tier == null ? null : 0.4 + tr.tier * 0.5;
+    const at = (arr, i) => (arr && arr[i]) || '';
     decks.push(mkDeck({ src: src.source, url: src.url, kind: 'research', group: d.group || '', title: d.name, name: d.name, tier,
       tierLabel: d.tier ? d.tier + (d.score ? ` ${d.score}` : '') : '', desc: '', note: d.note || '', formation: d.formation || '',
-      slots: d.generals.map((n, i) => ({ gen: parseGeneralCell(n), tactics: (d.tactics[i] || []).map(parseTacticCell).filter(Boolean), books: [], rows: d.troops && d.troops[i] ? { '병종': d.troops[i] } : {} })), prio: 5 }));
+      slots: d.generals.map((n, i) => {
+        const rows = {};
+        if (at(d.troops, i)) rows['병종'] = d.troops[i];
+        if (at(d.stats, i)) rows['스텟'] = d.stats[i];
+        if (at(d.gear, i)) rows['장비특성'] = d.gear[i];
+        return { gen: parseGeneralCell(n), tactics: (d.tactics[i] || []).map(parseTacticCell).filter(Boolean), books: at(d.books, i) ? [d.books[i]] : [], rows };
+      }), prio: src.prio || 5 }));
   }
   // 내 덱
   for (const c of state.customDecks) {
@@ -953,6 +961,46 @@ function serverSelect(a, i) {
 function renderAcctSwitch() {
   $('#acctSwitch').innerHTML = state.accounts.map((a, i) => `<button data-act="acct" data-i="${i}" class="${i === state.active ? 'on' : ''}">${esc(a.name)}</button>`).join('');
 }
+// ───────────────────────── 그림: 무장 초상 타일 · 전법 아이콘 ─────────────────────────
+// 게임 원화는 쓰지 않고, 진영 색 + 이름 글자로 초상 타일을 그립니다(배치는 믹스커피 공략 가이드를 참고).
+const FAC_CLS = { 위: 'wei', 촉: 'shu', 오: 'wu', 군: 'qun' };
+const TROOP_ABBR = { 기병: '기', 방패병: '방', 궁병: '궁', 창병: '창' };
+function genFac(k) {
+  const e = G.get(k) || G.get(yeonBase(k)) || {};
+  return FAC_CLS[e.fac] || 'none';
+}
+// 타일에 쓸 이름: 'SP 제갈량' → '제갈량', '연의 원소' → '원소'
+const avName = k => String(gName(k)).replace(/^연의\s*/, '').replace(/^SP\s*/i, '');
+// o: { size: 'sm'|'md'|'lg', a: 계정(돌·품 표시), troop, dim, mark: 'have'|'warn'|'miss', label }
+function avatar(k, o = {}) {
+  const e = G.get(k) || {}, nm = avName(k), g = o.a ? genState(o.a, k) : null;
+  const troopFull = String(o.troop || (e.troop && e.troop !== '—' ? e.troop : '')).replace(/^백전\s*/, '');
+  const tr = TROOP_ABBR[(troopFull.match(TROOP_RE) || [])[1]] || '';
+  const badge = /^연의/.test(k) ? '<i class="av-b yeon">연의</i>' : /^sp/i.test(k) ? '<i class="av-b sp">SP</i>' : '';
+  const pips = g ? `<span class="av-s">${range0(MAX_STARS - 1).map(i => `<b class="${i < (g.stars || 0) ? 'on' : ''}"></b>`).join('')}</span>${g.grade ? `<span class="av-g">${g.grade}품</span>` : ''}` : '';
+  const len = [...nm].length;
+  return `<span class="av f-${genFac(k)} ${o.size || 'md'} ${o.dim ? 'dim' : ''} ${o.mark || ''}" title="${esc(o.label || gName(k))}">
+    <span class="av-n l${Math.min(len, 4)}">${esc(nm)}</span>${badge}${tr ? `<i class="av-t">${tr}</i>` : ''}${pips}</span>`;
+}
+const TICON = {
+  지휘: '<path d="M6 3v18M6 4h11l-3 4 3 4H6"/>',
+  액티브: '<path d="M13 2 5 13h6l-1 9 8-11h-6z"/>',
+  패시브: '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/>',
+  추격: '<path d="M5 6l6 6-6 6M12 6l6 6-6 6"/>',
+};
+const TTYPE_CLS = { 지휘: 'cmd', 액티브: 'act', 패시브: 'pas', 추격: 'pur' };
+function ticon(type) {
+  return `<svg class="ti ${TTYPE_CLS[type] || 'unk'}" viewBox="0 0 24 24" aria-hidden="true">${TICON[type] || '<circle cx="12" cy="12" r="4"/>'}</svg>`;
+}
+// 전법 이름 + 유형 아이콘 (opts는 대체안 목록, have는 보유 여부)
+function tacLabel(keys, o = {}) {
+  const e = T.get(keys[0]) || {};
+  return `<span class="tl ${o.cls || ''}" title="${esc([e.ttype, e.trait].filter(Boolean).join(' · '))}">${ticon(e.ttype)}<span>${keys.map(k => esc(tName(k))).join(' / ')}</span>${o.copy ? ' <span class="tag">영본</span>' : ''}</span>`;
+}
+// 티어 숫자 → 티어표 줄
+const TIER_ROWS = [['T0+', t => t < 0.4], ['T0', t => t < 0.75], ['T1', t => t < 1.2], ['T2', t => t < 1.7], ['T3', () => true]];
+const tierRowOf = d => (d.tier == null ? '참고' : TIER_ROWS.find(([, f]) => f(d.tier))[0]);
+
 // 무장 한 자리의 세팅: 병종 · 병법 · 장비 · 특성 · 스탯 (시트에 없으면 병종은 무장 기본 병종으로)
 function slotInfo(s) {
   if (!s.gen) return '';
@@ -980,9 +1028,11 @@ function deckCard(d, a, opts = {}) {
     }).join(' / ');
     const tac = s.tactics.map(t => {
       const ok = t.opts.some(k => tCount(a, k) > 0);
-      return `<div class="tac ${ok ? 'have' : 'miss'}">${ok ? '●' : '○'} ${t.opts.map(k => esc(tName(k))).join(' / ')}${t.copy ? ' <span class="tag">영본</span>' : ''}</div>`;
+      return `<div class="tac ${ok ? 'have' : 'miss'}">${tacLabel(t.opts, { copy: t.copy })}</div>`;
     }).join('');
-    return `<div class="slot"><div class="gname ${meet ? 'have' : has ? 'warn' : 'miss'}">${gtxt}</div>${tac || (d.unknownTactics ? '<div class="tac muted">전법 세부 미확인</div>' : '')}${slotInfo(s)}</div>`;
+    const fk = s.gen.opts.find(k => ownsG(a, k)) || s.gen.opts[0];
+    const face = `<div class="face">${avatar(fk, { a, troop: s.gen.troop || (s.rows || {})['병종'], mark: meet ? '' : has ? 'warn' : 'miss' })}</div>`;
+    return `<div class="slot">${face}<div class="gname ${meet ? 'have' : has ? 'warn' : 'miss'}">${gtxt}</div>${tac || (d.unknownTactics ? '<div class="tac muted">전법 세부 미확인</div>' : '')}${slotInfo(s)}</div>`;
   };
   const more = '';
   const inLineup = a.lineup.some(id => resolveId(id) === d.id);
@@ -1047,10 +1097,32 @@ function viewDecks() {
     <select data-model="src">
       ${[['main', '시트+추가 조사+내 덱'], ['sheet', '시트 (티어+변칙)'], ['research', '추가 조사'], ['tier', '티어덱'], ['variant', '변칙·계열덱'], ['coexist', '공존덱 구성'], ['community', '커뮤니티(세부 미확인)'], ['custom', '내 덱'], ['all', '전체']].map(([v, l]) => `<option value="${v}" ${u.src === v ? 'selected' : ''}>${l}</option>`).join('')}
     </select>
+    <div class="seg">${[['tier', '티어표'], ['cards', '상세 카드']].map(([v, l]) => `<button data-act="set" data-k="deckView" data-v="${v}" class="${(u.deckView === 'cards' ? 'cards' : 'tier') === v ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div class="seg">${[['all', '전체'], ['ok', '가능'], ['stars', '돌파·품 부족'], ['tactic', '전법 부족'], ['general', '무장 부족']].map(([v, l]) => `<button data-act="set" data-k="status" data-v="${v}" class="${u.status === v ? 'on' : ''}">${l}</button>`).join('')}</div>
   </div>
-  ${list.length ? `<div class="grid">${list.map(x => deckCard(x.d, a)).join('')}</div>` : '<div class="empty">조건에 맞는 덱이 없습니다.</div>'}
+  ${!list.length ? '<div class="empty">조건에 맞는 덱이 없습니다.</div>' : u.deckView === 'cards' ? `<div class="grid">${list.map(x => deckCard(x.d, a)).join('')}</div>` : tierTable(list, a)}
+  ${openDeckId && deckById(openDeckId) ? `<div class="deck-pop" data-act="closeDeck"><div data-stop="1">${deckCard(deckById(openDeckId), a)}</div></div>` : ''}
   `;
+}
+// 티어표: 왼쪽 티어 칸 + 덱마다 초상 3장 (누르면 상세 카드)
+let openDeckId = null;
+function tierTable(list, a) {
+  const rows = {};
+  for (const x of list) (rows[tierRowOf(x.d)] = rows[tierRowOf(x.d)] || []).push(x);
+  const order = ['T0+', 'T0', 'T1', 'T2', 'T3', '참고'];
+  const cls = { 'T0+': 'T0p', 'T0': 'T0', 'T1': 'T1', 'T2': 'T2', 'T3': 'T3', '참고': 'ref' };
+  const card = ({ d, c }) => {
+    const faces = d.slots.map(s => {
+      if (!s.gen) return '';
+      const k = s.gen.opts.find(x => ownsG(a, x)) || s.gen.opts[0];
+      const mark = s.gen.opts.some(x => meetsG(a, s, x)) ? '' : s.gen.opts.some(x => ownsG(a, x)) ? 'warn' : 'miss';
+      return avatar(k, { a, troop: s.gen.troop || (s.rows || {})['병종'], mark });
+    }).join('');
+    return `<button class="tcard ${c.status}" data-act="openDeck" data-id="${esc(d.id)}" title="${esc(d.slots.map(s => s.gen ? s.gen.opts.map(gName).join('/') : '').join(' · '))}">
+      <div class="faces">${faces}</div><div class="nm">${esc(d.name)}${d.aka ? `<span class="small muted"> = ${esc(d.aka.slice(0, 2).join(', '))}</span>` : ''}</div>
+      <div class="mt"><span>${esc([d.tierLabel, d.formation].filter(Boolean).join(' · ') || KIND_LABEL[d.kind])}</span><span class="status ${c.status}">${STATUS_LABEL[c.status]}</span></div></button>`;
+  };
+  return `<div class="tier-list">${order.filter(t => rows[t]).map(t => `<div class="tier-row"><div class="tier-lab ${cls[t]}"><b>${t}</b><span>${rows[t].length}덱</span></div><div class="tier-cards">${rows[t].map(card).join('')}</div></div>`).join('')}</div>`;
 }
 
 // ───────────────────────── 렌더: 보유 관리 ─────────────────────────
@@ -1350,8 +1422,8 @@ function viewOwn() {
   </details>`;
   const sortBar = `<div class="bar"><span class="small muted">정렬</span><div class="seg">${[['name', '가나다순'], ['used', '사용 덱 수']].map(([v, l]) => `<button data-act="set" data-k="ownSort" data-v="${v}" class="${u.ownSort === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
   const sorter = u.ownSort === 'used' ? ((x, y) => y.used - x.used || byKoName(x, y)) : byKoName;
-  const section = (label, items, isOwned, chip) => items.length
-    ? `<div class="section-t">${label} (보유 ${items.filter(isOwned).length}/${items.length})</div><div class="chips">${items.sort(sorter).map(chip).join('')}</div>` : '';
+  const section = (label, items, isOwned, chip, box = 'chips') => items.length
+    ? `<div class="section-t">${label} (보유 ${items.filter(isOwned).length}/${items.length})</div><div class="${box}">${items.sort(sorter).map(chip).join('')}</div>` : '';
   if (u.ownTab === 'generals') {
     let gens = [...G.values()].filter(e => (e.season || 0) <= MAX_SEASON);
     if (u.ownUsedOnlyV2) gens = gens.filter(e => e.used > 0 || ownsG(a, e.key));
@@ -1359,13 +1431,14 @@ function viewOwn() {
     const chip = e => {
       const g = a.generals[e.key] || {};
       const tip = [e.season ? `시즌${e.season}` : '', e.skill, e.type, e.cat].filter(Boolean).join(' · ') + (e.desc ? '\n' + e.desc : '');
-      return `<button class="chip ${g.owned ? 'on' : ''} ${e.used ? '' : 'dim'}" data-act="gen" data-k="${esc(e.key)}" title="${esc(tip)}">${esc(e.name)}${g.owned ? `<span class="st">${g.stars || 0}돌${g.grade ? ` ${g.grade}품` : ''}</span>` : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
+      const own = ownsG(a, e.key);
+      return `<button class="av-btn ${own ? 'on' : ''} ${e.used ? '' : 'unused'}" data-act="gen" data-k="${esc(e.key)}" title="${esc(tip)}">${avatar(e.key, { a: own ? a : null, label: tip })}<span class="cap">${esc(e.name)}${own ? ` · ${g.stars || 0}돌${g.grade ? ` ${g.grade}품` : ''}` : ''}${e.used ? ` <span class="muted">(${e.used})</span>` : ''}</span></button>`;
     };
     // 시즌별 묶음: 연의 무장은 따로, 도감에 없는 무장은 '기타'
     const groupsDef = [['S3 연의 무장', e => /^연의/.test(e.key)], ['시즌3 무장', e => e.season === 3], ['시즌2 무장', e => e.season === 2], ['시즌1 무장', e => e.season === 1], ['기타 (도감 미등록)', () => true]];
     const left = new Set(gens);
-    const parts = groupsDef.map(([lab, f]) => { const items = [...left].filter(f); items.forEach(x => left.delete(x)); return section(lab, items, e => ownsG(a, e.key), chip); }).join('');
-    return head + sortBar + `<p class="small muted"><b>돌파</b> 모드: 칩을 누를 때마다 <b>미보유 → 0돌 → 1돌 → … → 5돌 → 미보유</b>로 바뀝니다. <b>품</b> 모드: 누를 때마다 품이 0→5→0으로 바뀝니다(미보유면 0돌로 보유 처리). 시즌별로 나눠 보여주고, 각 묶음 안은 위에서 고른 순서입니다. 오른쪽 작은 숫자는 그 무장이 쓰이는 덱 수이고, 칩에 마우스를 올리면 시즌·고유 전법이 보입니다.</p>` + (parts || '<div class="empty">표시할 무장이 없습니다.</div>');
+    const parts = groupsDef.map(([lab, f]) => { const items = [...left].filter(f); items.forEach(x => left.delete(x)); return section(lab, items, e => ownsG(a, e.key), chip, 'av-grid'); }).join('');
+    return head + sortBar + `<p class="small muted"><b>돌파</b> 모드: 초상을 누를 때마다 <b>미보유 → 0돌 → 1돌 → … → 5돌 → 미보유</b>로 바뀝니다(초상 아래쪽 마름모 = 돌파). <b>품</b> 모드: 누를 때마다 품이 0→5→0으로 바뀝니다(미보유면 0돌로 보유 처리). 초상 색은 진영(위 파랑 · 촉 초록 · 오 빨강 · 군 황토), 오른쪽 위 글자는 기본 병종입니다. 회색 초상은 미보유이고, 이름 옆 괄호 숫자는 그 무장이 쓰이는 덱 수입니다.</p>` + (parts || '<div class="empty">표시할 무장이 없습니다.</div>');
   }
   let tacs = [...T.values()];
   if (u.ownUsedOnlyV2) tacs = tacs.filter(e => e.used > 0 || tCount(a, e.key));
@@ -1373,7 +1446,7 @@ function viewOwn() {
   const chip = e => {
     const n = tCount(a, e.key);
     const tip = [e.ttype, e.trait, e.tseason].filter(Boolean).join(' · ') + (e.aliases ? `\n다른 자료 표기: ${[...e.aliases].join(', ')}` : '');
-    return `<button class="chip ${n ? 'on' : ''} ${n > 1 ? 'two' : ''} ${e.used ? '' : 'dim'}" data-act="tac" data-k="${esc(e.key)}"${tip ? ` title="${esc(tip)}"` : ''}>${esc(e.name)}${e.aliases ? '<span class="n">*</span>' : ''}${n > 1 ? '<span class="st">×2</span>' : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
+    return `<button class="chip ${n ? 'on' : ''} ${n > 1 ? 'two' : ''} ${e.used ? '' : 'dim'}" data-act="tac" data-k="${esc(e.key)}"${tip ? ` title="${esc(tip)}"` : ''}>${ticon(e.ttype)}${esc(e.name)}${e.aliases ? '<span class="n">*</span>' : ''}${n > 1 ? '<span class="st">×2</span>' : ''}${e.used ? `<span class="n">${e.used}</span>` : ''}</button>`;
   };
   const TYPES = ['지휘', '액티브', '패시브', '추격'];
   const tparts = [...TYPES.map(t => section(`${t} 전법`, tacs.filter(e => e.ttype === t), e => tCount(a, e.key) > 0, chip)),
@@ -1552,7 +1625,7 @@ function viewLineup() {
         <span><button class="btn small" data-act="luLock" data-a="${i}" data-id="${esc(d.id)}" title="${locked ? '고정 해제' : '이 부대 무장 고정: 다시 편성해도 무장은 그대로, 전법만 다시 고름'}">${locked ? '🔒' : '🔓'}</button> <button class="btn small" data-act="luUp" data-a="${i}" data-id="${esc(d.id)}">▲</button> <button class="btn small" data-act="luDel" data-a="${i}" data-id="${esc(d.id)}">✕</button></span></div>
         ${d.formation || d.subNotes ? `<div class="small muted">${d.formation ? esc(d.formation) : ''}${d.subNotes ? ` · 대체: ${d.subNotes.map(esc).join(', ')}` : ''}</div>` : ''}
         ${d.kind === 'filler' ? `<div class="small warn">${esc(d.note)}</div>` : ''}
-        <div class="lu-slots">${d.slots.map(s => s.gen ? `<div class="slot"><div class="gname">${esc(s.gen.opts.filter(k => ownsG(a, k)).map(gName)[0] || s.gen.opts.map(gName).join('/'))}${(() => { const k = s.gen.opts.find(x => ownsG(a, x)); return k ? `<span class="small"> ${starsOf(a, k)}돌</span>` : ''; })()}</div>${s.tactics.map(t => `<div class="tac">· ${esc((t.opts.find(k => tCount(a, k) > 0) && tName(t.opts.find(k => tCount(a, k) > 0))) || t.opts.map(tName).join('/'))}</div>`).join('')}${slotInfo(s)}</div>` : '').join('')}</div>
+        <div class="lu-slots">${d.slots.map(s => { if (!s.gen) return ''; const k = s.gen.opts.find(x => ownsG(a, x)); return `<div class="slot"><div class="face">${avatar(k || s.gen.opts[0], { a, size: 'sm', troop: s.gen.troop || (s.rows || {})['병종'], mark: k ? '' : 'miss' })}</div><div class="gname">${esc(k ? gName(k) : s.gen.opts.map(gName).join('/'))}${k ? `<span class="small"> ${starsOf(a, k)}돌</span>` : ''}</div>${s.tactics.map(t => { const h = t.opts.find(x => tCount(a, x) > 0); return `<div class="tac ${h ? '' : 'miss'}">${tacLabel(h ? [h] : t.opts)}</div>`; }).join('')}${slotInfo(s)}</div>`; }).join('')}</div>
         ${c.ok ? '' : `<div class="small miss">${c.why.map(esc).join(', ')}</div>`}</div>`;
     };
     const total = decks.reduce((sc, d, idx) => sc + deckScore(d, a) * (idx < mains ? 1 : 0.6), 0);
@@ -1764,6 +1837,8 @@ document.addEventListener('click', e => {
   switch (A) {
     case 'acct': state.active = +b.dataset.i; break;
     case 'set': state.ui[b.dataset.k] = b.dataset.v; break;
+    case 'openDeck': openDeckId = b.dataset.id; break;
+    case 'closeDeck': if (e.target.closest('[data-stop]')) return; openDeckId = null; break;
     case 'toggleSub': ai.allowSub = b.checked; break;
     case 'toggleUsedOnly': state.ui.ownUsedOnlyV2 = b.checked; break;
     case 'gen': {
