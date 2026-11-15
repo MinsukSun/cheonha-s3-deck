@@ -309,6 +309,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "강유": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {
@@ -864,6 +869,6 @@
   ],
   "v": 2
  },
- "rev": 251,
- "savedAt": "2026-11-15T21:03:25.488Z"
+ "rev": 252,
+ "savedAt": "2026-11-15T21:03:32.442Z"
 }
