@@ -1684,7 +1684,7 @@ function tacPlan(a, decks) {
 function tacSelect(a, d, cid, cell, ai, slot) {
   const rec = cell.alt || [], cur = cell.k, e0 = T.get(cell.rec) || {};
   const owned = [...T.values()].filter(e => tCount(a, e.key) > 0);
-  const lab = e => `${e.name}${e.ttype ? ` · ${e.ttype}` : ''}${e.trait ? `·${e.trait}` : ''}${tCount(a, e.key) > 1 ? ' ×2' : ''}`;
+  const lab = e => `${e.name}${tCount(a, e.key) > 1 ? ' ×2' : ''}`;   // 유형·특성은 묶음 제목에 있음
   const opt = e => `<option value="${esc(e.key)}" ${e.key === cur ? 'selected' : ''}>${esc(lab(e))}</option>`;
   const recE = rec.map(k => T.get(k)).filter(e => e && tCount(a, e.key) > 0);
   const near = owned.filter(e => !rec.includes(e.key) && e.ttype === e0.ttype && e.trait === e0.trait).sort(byKoName);
@@ -1694,7 +1694,7 @@ function tacSelect(a, d, cid, cell, ai, slot) {
     <option value="">자동 (추천 순서${cell.picked ? '' : ` → ${esc(cur ? tName(cur) : '없음')}`})</option>${curMissing}
     ${recE.length ? `<optgroup label="추천·자료 대체안">${recE.map(opt).join('')}</optgroup>` : ''}
     ${near.length ? `<optgroup label="같은 ${esc([e0.ttype, e0.trait].filter(Boolean).join('·'))}">${near.map(opt).join('')}</optgroup>` : ''}
-    <optgroup label="그 밖의 보유 전법">${rest.map(opt).join('')}</optgroup></select>`;
+    ${['지휘', '액티브', '패시브', '추격', ''].map(ty => { const g = rest.filter(e => (e.ttype || '') === ty); return g.length ? `<optgroup label="그 밖의 ${ty || '유형 미확인'} 전법">${g.map(opt).join('')}</optgroup>` : ''; }).join('')}</select>`;
 }
 
 function viewLineup() {
