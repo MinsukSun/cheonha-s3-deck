@@ -10,6 +10,8 @@ python3 -m http.server 8765   # 이 폴더에서 실행
 
 브라우저에서 http://localhost:8765 를 엽니다. `index.html`을 더블클릭해서 열어도 됩니다.
 
+> **배포할 때**: `index.html`의 `?v=…` 값을 바꿔야 브라우저가 새 `app.js`·`styles.css`·`data/*.js`를 받습니다(GitHub Pages는 파일을 10분 동안 캐시함).
+
 ## 기능
 
 | 탭 | 내용 |
