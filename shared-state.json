@@ -124,11 +124,6 @@
      "stars": 1,
      "grade": 0
     },
-    "장료": {
-     "owned": true,
-     "stars": 0,
-     "grade": 0
-    },
     "제갈량": {
      "owned": true,
      "stars": 0,
@@ -378,6 +373,11 @@
     "연의원소": {
      "owned": true,
      "stars": 0,
+     "grade": 0
+    },
+    "장료": {
+     "owned": true,
+     "stars": 3,
      "grade": 0
     }
    },
@@ -963,6 +963,6 @@
   ],
   "v": 2
  },
- "rev": 300,
- "savedAt": "2026-11-15T22:03:51.547Z"
+ "rev": 301,
+ "savedAt": "2026-11-16T20:30:39.955Z"
 }
