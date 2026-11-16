@@ -744,10 +744,14 @@ function buildData() {
 }
 
 // ───────────────────────── 보유 판정 ─────────────────────────
-// 연의 무장: 기본/연의 중 한쪽만 쓸 수 있음(게임에서 한쪽을 고르면 반대쪽 조합 불가). 고르지 않은 쪽은 미보유로 봅니다.
+// 연의 무장: 연의 칸마다 두 연의 무장 중 한 명만 고를 수 있음(연의1 공손찬/원소, 연의2 장료/감녕, 연의3 관우/조인).
+// 고르지 않은 쪽 '연의' 무장만 미보유로 보고, 기본 무장(장료·감녕 등)은 그대로 씁니다. 같은 인물은 한 부대·편성에 한 번만.
 const yeonBase = k => String(k).replace(/^연의/, '');
 const person = k => yeonBase(k);                         // 같은 인물(기본·연의)은 한 번만 출전
-const yeonBlocked = (a, k) => { const c = (a.yeonui || {})[yeonBase(k)]; return c ? (c === 'yeon' ? !/^연의/.test(k) && G.has('연의' + k) : /^연의/.test(k)) : false; };
+const YEON_GROUPS = [['공손찬', '원소'], ['장료', '감녕'], ['관우', '조인']];
+const yeonGroup = b => YEON_GROUPS.find(g => g.includes(b));
+const yeonPick = (a, g) => g.find(b => (a.yeonui || {})[b] === 'yeon') || '';
+const yeonBlocked = (a, k) => { if (!/^연의/.test(k)) return false; const b = yeonBase(k), g = yeonGroup(b); if (!g) return false; const p = yeonPick(a, g); return !!p && p !== b; };
 const ownsG = (a, k) => !!(a.generals[k] && a.generals[k].owned) && !yeonBlocked(a, k);
 const tCount = (a, k) => a.tactics[k] || 0;
 function check(d, a) {
@@ -1618,14 +1622,15 @@ function pullAdvice(a) {
   return out.sort((x, y) => y.gain - x.gain).slice(0, 10);
 }
 const pullCache = {};
-function yeonPairs() { return [...G.values()].filter(e => /^연의/.test(e.key) && G.has(yeonBase(e.key))).map(e => yeonBase(e.key)).sort((x, y) => gName(x).localeCompare(gName(y), 'ko')); }
 function yeonPanel(a, i) {
-  const pairs = yeonPairs(); if (!pairs.length) return '';
+  const groups = YEON_GROUPS.map(g => g.filter(b => G.has('연의' + b))).filter(g => g.length);
+  if (!groups.length) return '';
   const own = k => (a.generals[k] && a.generals[k].owned ? ' (보유)' : '');
-  return `<details class="yeon"><summary class="small">연의 선택 ${Object.keys(a.yeonui || {}).length ? `· ${Object.entries(a.yeonui).map(([b, c]) => `${gName(c === 'yeon' ? '연의' + b : b)}`).map(esc).join(', ')}` : '(미정)'}</summary>
-    <p class="small muted">게임에서 기본·연의 중 한쪽을 고르면 반대쪽은 쓸 수 없습니다. 고른 쪽만 추천에 쓰고, 고르지 않은 쪽은 미보유로 봅니다.</p>
-    <div class="yeon-grid">${pairs.map(b => `<label class="small">${esc(gName(b))}<select data-act-input="yeon" data-a="${i}" data-base="${esc(b)}">
-      <option value="">미정</option><option value="base" ${(a.yeonui || {})[b] === 'base' ? 'selected' : ''}>기본${own(b)}</option><option value="yeon" ${(a.yeonui || {})[b] === 'yeon' ? 'selected' : ''}>연의${own('연의' + b)}</option></select></label>`).join('')}</div>
+  const picks = groups.map(g => yeonPick(a, g)).filter(Boolean);
+  return `<details class="yeon"><summary class="small">연의 선택 ${picks.length ? `· ${picks.map(b => gName('연의' + b)).map(esc).join(', ')}` : '(미정)'}</summary>
+    <p class="small muted">연의 칸마다 두 연의 무장 중 한 명만 쓸 수 있습니다. 고른 연의 무장만 추천에 쓰고, 고르지 않은 쪽 연의 무장은 미보유로 봅니다. 기본 무장(예: 장료·감녕)은 연의 선택과 상관없이 그대로 쓰며, 같은 인물의 기본·연의는 한 편성에 한 번만 나옵니다.</p>
+    <div class="yeon-grid">${groups.map((g, gi) => `<label class="small">연의${gi + 1}<select data-act-input="yeon" data-a="${i}" data-group="${esc(g.join(','))}">
+      <option value="">미정</option>${g.map(b => `<option value="${esc(b)}" ${yeonPick(a, g) === b ? 'selected' : ''}>${esc(gName('연의' + b))}${own('연의' + b)}</option>`).join('')}</select></label>`).join('')}</div>
   </details>`;
 }
 function pullPanel(a, i) {
@@ -2076,7 +2081,7 @@ document.addEventListener('change', e => {
   if (A === 'rename') { a.name = t.value.trim() || a.name; }
   else if (A === 'squads') { state.accounts[+t.dataset.a].squads = +t.value; }
   else if (A === 'mainCount') { state.accounts[+t.dataset.a].mainCount = +t.value; }
-  else if (A === 'yeon') { const x = state.accounts[+t.dataset.a]; x.yeonui = x.yeonui || {}; if (t.value) x.yeonui[t.dataset.base] = t.value; else delete x.yeonui[t.dataset.base]; delete pullCache[x.id]; }
+  else if (A === 'yeon') { const x = state.accounts[+t.dataset.a]; x.yeonui = x.yeonui || {}; t.dataset.group.split(',').forEach(b => delete x.yeonui[b]); if (t.value) x.yeonui[t.value] = 'yeon'; delete pullCache[x.id]; }
   else if (A === 'breakLevel') { state.accounts[+t.dataset.a].breakLevel = t.value; }
   else if (A === 'server') { state.accounts[+t.dataset.a].server = t.value; toast(`${state.accounts[+t.dataset.a].name}: ${t.value === 'rural' ? '시골섭 완화 조건으로 판정' : '일반 조건으로 판정'}`); }
   else if (A === 'copyFrom' && t.value !== '') {
