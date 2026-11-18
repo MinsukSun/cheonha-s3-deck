@@ -1906,10 +1906,65 @@ function cxGenDetail(g, a) {
     ${(g.notes || []).length ? `<p class="small warn">${g.notes.map(esc).join(' · ')}</p>` : ''}
     <p class="small muted">출처: ${esc((g.src || []).join(', '))}</p></div>`;
 }
+// ── 도감 > 조합 분석 (combo.js) ──
+const comboState = () => { const u = state.ui; if (!u.combo || !Array.isArray(u.combo.slots)) u.combo = { form: '', from: '', slots: [0, 1, 2].map(() => ({ g: '', t: ['', ''] })) }; return u.combo; };
+const fitTag = f => (!f ? '' : `<span class="tag ${f.fit >= 0.75 ? 'ok' : f.fit >= 0.45 ? '' : 'warn'}" title="${esc(f.stat)} ${f.value}">${f.fit >= 0.75 ? '궁합 좋음' : f.fit >= 0.45 ? '보통' : '약함'} · ${esc(f.stat)} ${f.value}</span>`);
+function comboFromDeck(d) {
+  const cx = cxData(), c = comboState();
+  const tn = k => { const t = cx.tactics.find(x => x.key === k); return t ? t.name : tName(k); };
+  const gs = d.slots.filter(s => s.gen).slice(0, 3);
+  c.slots = [0, 1, 2].map(i => { const s = gs[i]; if (!s) return { g: '', t: ['', ''] }; const k = s.gen.opts[0]; const cg = cxGen(k);
+    return { g: cg ? cg.name : gName(k), t: [0, 1].map(j => (s.tactics[j] ? tn(s.tactics[j].opts[0]) : '')) }; });
+  const f = window.TK3Combo.findForm(cx, d.formation); c.form = f ? f.name : '';
+  c.from = d.id;
+}
+function viewCombo(a) {
+  const C = window.TK3Combo, cx = cxData(), c = comboState(), u = state.ui;
+  if (!C) return '<div class="empty">combo.js를 불러오지 못했습니다.</div>';
+  const r = C.analyze(c, cx);
+  const ownG = k => ownsG(a, k), ownT = k => tCount(a, k) > 0;
+  const genOpts = cur => `<option value="">— 무장 —</option>${[1, 2, 3].map(se => `<optgroup label="S${se}">${cx.generals.filter(g => g.season === se).sort((x, y) => x.name.localeCompare(y.name, 'ko')).map(g => `<option value="${esc(g.name)}" ${g.name === cur ? 'selected' : ''}>${esc(g.name)}${ownG(g.key) ? ' ✓' : ''}</option>`).join('')}</optgroup>`).join('')}`;
+  const TY = ['지휘', '액티브', '패시브', '추격'];
+  const tacOpts = cur => `<option value="">— 전법 —</option>${TY.map(ty => `<optgroup label="${ty}">${cx.tactics.filter(t => t.type === ty).sort((x, y) => x.name.localeCompare(y.name, 'ko')).map(t => `<option value="${esc(t.name)}" ${t.name === cur ? 'selected' : ''}>${esc(t.name)}${ownT(t.key) ? ' ✓' : ''}</option>`).join('')}</optgroup>`).join('')}`;
+  const decks = DECKS.filter(d => d.kind !== 'custom' && d.slots.filter(s => s.gen).length >= 3).sort((x, y) => (x.tier ?? 9) - (y.tier ?? 9) || x.name.localeCompare(y.name, 'ko'));
+  const owned = u.comboOwned ? { owned: null } : {};
+  const bar = `<div class="bar"><label class="small">덱에서 불러오기 <select data-act-input="combo" data-f="from"><option value="">— 추천 덱 고르기 —</option>${decks.map(d => `<option value="${esc(d.id)}" ${d.id === c.from ? 'selected' : ''}>${esc([d.tierLabel, d.name].filter(Boolean).join(' · '))}</option>`).join('')}</select></label>
+    <label class="small">진형 <select data-act-input="combo" data-f="form"><option value="">— 진형 —</option>${cx.formations.map(f => `<option value="${esc(f.name)}" ${f.name === c.form ? 'selected' : ''}>${esc(f.name)} (전열 ${f.front})</option>`).join('')}</select></label>
+    <label class="small"><input type="checkbox" data-act="comboOwned" ${u.comboOwned ? 'checked' : ''}> 대체 후보는 ${esc(a.name)} 보유만</label>
+    <button class="btn" data-act="comboClear">비우기</button></div>`;
+  const slotCard = s => {
+    const cs = c.slots[s.i], g = s.g;
+    const altG = g || cs.g ? C.altGenerals(c, s.i, cx, { owned: u.comboOwned ? ownG : null, n: 5 }) : [];
+    const tacRow = (t, ti) => {
+      const alts = cs.g ? C.altTactics(c, s.i, ti, cx, { owned: u.comboOwned ? ownT : null, n: 5 }) : [];
+      return `<div class="cb-t"><select class="tsel" data-act-input="combo" data-f="t" data-si="${s.i}" data-ti="${ti}">${tacOpts(cs.t[ti])}</select>
+        ${t && !t.unknown ? `<div class="cb-meta">${ticon(t.type)}${traitBadge(t.trait)}${t.rate != null ? `<span class="small muted">발동 ${t.rate}%${t.casts != null ? ` · 8턴 약 ${t.casts}회` : ''}</span>` : ''}${fitTag(t.fit)}${t.tdesc || t.desc ? `<span class="small muted cb-tip" title="${esc(t.desc)}">설명</span>` : ''}</div>` : ''}
+        ${alts.length ? `<details class="cb-alt"><summary class="small">대체 전법 후보</summary>${alts.map(x => `<div class="cb-ar"><button class="btn sm" data-act="comboSet" data-si="${s.i}" data-f="t" data-ti="${ti}" data-v="${esc(x.name)}">바꾸기</button>${ticon(x.type)}<b>${esc(x.name)}</b>${traitBadge(x.trait)}${ownT(x.key) ? '<span class="tag ok">보유</span>' : ''}<span class="small muted">${x.score}점${x.why.length ? ' · ' + x.why.map(esc).join(', ') : ''}</span></div>`).join('')}</details>` : ''}</div>`;
+    };
+    return `<div class="card cb-slot"><div class="cb-h"><b>${s.i + 1}번</b> <span class="tag ${s.pos === '전열' ? '' : 'sub'}">${s.pos}</span>${s.posFit === 0 ? `<span class="tag warn">${esc(s.pref)} 무장</span>` : s.posFit === 1 ? `<span class="tag ok">위치 맞음</span>` : g ? '<span class="tag">위치 미확인</span>' : ''}</div>
+      <div class="cb-g">${g ? avatar(g.key, { a: ownG(g.key) ? a : null }) : ''}<div style="flex:1;min-width:0"><select class="tsel" data-act-input="combo" data-f="g" data-si="${s.i}">${genOpts(cs.g)}</select>
+        ${g ? `<div class="small muted">${esc([g.fac, g.troop, g.pos ? `선호 ${g.pos}` : '선호 위치 미확인'].filter(Boolean).join(' · '))}</div><div class="cx-mini">${CX_STATS.map(st => `<i>${st[0]}${Math.round(((g.stats || {})[st] || {}).lv50 || 0)}</i>`).join('')}</div>` : ''}</div></div>
+      ${s.unique ? `<div class="cb-u small">${ticon(s.unique.type)}<b>고유</b> ${esc(s.unique.name || '')}${traitBadge(s.unique.trait)}${fitTag(s.unique.fit)}</div>` : ''}
+      ${s.tactics.map((t, ti) => tacRow(t, ti)).join('')}${[0, 1].slice(s.tactics.length).map(ti => tacRow(null, ti)).join('')}
+      ${altG.length ? `<details class="cb-alt"><summary class="small">대체 무장 후보</summary>${altG.map(x => `<div class="cb-ar"><button class="btn sm" data-act="comboSet" data-si="${s.i}" data-f="g" data-v="${esc(x.name)}">넣기</button><b>${esc(x.name)}</b>${ownG(x.key) ? '<span class="tag ok">보유</span>' : ''}<span class="small muted">${x.score}점${x.why.length ? ' · ' + x.why.map(esc).join(', ') : ''}</span></div>`).join('')}</details>` : ''}</div>`;
+  };
+  // slots가 3개보다 적으면 채움
+  const posAuto = C.assignPos(c, cx);
+  const slots = [0, 1, 2].map(i => r.slots[i] || { i, g: null, pos: posAuto[i], posFit: null, unique: null, tactics: [] });
+  const any = slots.some(s => s.g);
+  const res = !any ? '<div class="empty">무장을 고르거나 위에서 추천 덱을 불러오세요.</div>' : `<div class="card cb-res">
+    <div class="cb-score"><div class="big">${r.score.total}<span class="small muted"> / 100</span></div><div class="small muted">참고 점수 · 자료의 특성·태그·능력치로 매긴 값이고 실제 전투 결과는 아닙니다</div></div>
+    <div class="cb-parts">${r.score.parts.map(p => `<div class="cx-st" title="${esc(p.note)}"><span class="lab" style="width:auto">${esc(p.label)}</span><span class="track"><b style="width:${(p.v * 100).toFixed(0)}%"></b></span><span class="val">${Math.round(p.v * p.w)}</span><span class="gr small muted">/ ${p.w}</span></div>`).join('')}</div>
+    <h4>역할</h4><div class="chips">${r.roles.map(x => `<span class="chip ${x.ok ? 'on' : ''}" title="${esc(x.by.join(', ') || '없음')}">${x.ok ? '✓' : '✕'} ${esc(x.label)}${x.ok ? `<span class="n">${x.by.length}</span>` : ''}</span>`).join('')}</div>
+    <p class="small muted">피해 성향: <b>${esc(r.lean)}</b> (병기 피해 전법 ${r.wpn} · 책략 피해 전법 ${r.stg}) · 진영 ${Object.entries(r.fac).map(([k, v]) => `${esc(k)} ${v}`).join(', ')} · 병종 ${Object.entries(r.troop).map(([k, v]) => `${esc(k)} ${v}`).join(', ')}${r.form ? ` · ${esc(r.form.name)}: ${r.form.fx.map(esc).join(', ')}` : ' · 진형 미선택(전열 1자리로 봄)'}</p>
+    ${r.issues.length ? `<h4>확인할 점</h4><ul class="cb-iss">${r.issues.map(x => `<li class="${x.lv}">${esc(x.msg)}</li>`).join('')}</ul>` : '<p class="small have">겹침·위치·능력치 경고가 없습니다.</p>'}</div>`;
+  return bar + `<div class="cb-grid">${slots.map(slotCard).join('')}</div>` + res +
+    `<p class="small muted" style="margin-top:10px">전열/후열은 진형의 전열 자리 수만큼 선호 위치가 맞는 무장을 자동으로 배치한 결과입니다. 점수: 능력치 궁합 40(병기→무력, 책략→지력, 문무→둘의 평균, 50레벨 기준 250이면 만점) + 역할 분담 30(피해·생존 각 10, 방해·보조 각 5) + 위치 15 + 문제 없음 15. 대체 후보는 효과 태그·유형·특성이 비슷하고 그 무장의 능력치에 맞을수록 위에 옵니다. ✓는 ${esc(a.name)} 보유 표시입니다. 분석 로직은 <code>combo.js</code>에 따로 있어 로컬 에이전트가 같은 계산을 쓸 수 있습니다.</p>`;
+}
 function viewCodex() {
   const u = state.ui, a = acct(), cx = cxData(), tab = u.cxTab || 'gen';
   const seg = (k, opts, def) => `<div class="seg">${opts.map(([v, l]) => `<button data-act="set" data-k="${k}" data-v="${v}" class="${(u[k] || def) === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
-  const head = `<div class="bar">${seg('cxTab', [['gen', `무장 ${cx.generals.length}`], ['tac', `전법 ${cx.tactics.length}`], ['form', `진형 ${cx.formations.length}`]], 'gen')}
+  const head = `<div class="bar">${seg('cxTab', [['gen', `무장 ${cx.generals.length}`], ['tac', `전법 ${cx.tactics.length}`], ['form', `진형 ${cx.formations.length}`], ['combo', '조합 분석']], 'gen')}
     <button class="btn" data-act="cxExport" title="도감 전체를 JSON 파일로 내려받습니다(모의 조합·로컬 AI 에이전트용)">JSON 내려받기</button></div>`;
   const q = key(u.cxQ || '');
   let body = '';
@@ -1964,6 +2019,8 @@ function viewCodex() {
       <div class="tbl-wrap"><table class="cx-tbl tac"><thead><tr><th>전법</th><th>유형</th><th>특성</th><th>발동</th><th>시즌</th><th>덱</th><th>보유</th><th>효과</th></tr></thead><tbody>
       ${ts.map(t => { const n = tCount(a, t.key); return `<tr class="${n ? 'own' : ''}"><td class="nm">${ticon(t.type)}<b>${esc(t.name)}</b>${t.orig ? `<div class="small muted">${esc(t.orig)}</div>` : ''}</td><td>${esc(t.type || '')}</td><td>${traitBadge(t.trait)}</td><td class="num">${cxRate(t.rate)}</td><td>${esc(t.season || '')}</td>
         <td class="num">${(T.get(t.key) || {}).used || ''}</td><td class="num">${n ? (n > 1 ? '×2' : '○') : ''}</td><td class="desc">${esc(t.desc || '설명 없음')}${(t.tags || []).length ? `<div class="tags">${t.tags.map(x => `<span class="tag sub">${esc(x)}</span>`).join('')}</div>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
+  } else if (tab === 'combo') {
+    body = viewCombo(a);
   } else {
     body = `<p class="small muted">자리별 피격률은 적의 일반 공격·단일 대상 전법이 그 자리를 노릴 확률입니다. 앞쪽 자리가 전열입니다. 효과 수치는 기본값이며 건물 기술로 강화됩니다.</p>
       <div class="tbl-wrap"><table class="cx-tbl"><thead><tr><th>진형</th><th>전열</th><th>피격률 (자리별)</th><th>효과</th></tr></thead><tbody>
@@ -2046,6 +2103,9 @@ document.addEventListener('click', e => {
     case 'set': state.ui[b.dataset.k] = b.dataset.v; break;
     case 'openDeck': openDeckId = b.dataset.id; openCodexKey = null; break;
     case 'cxOpen': openCodexKey = b.dataset.k; break;
+    case 'comboOwned': state.ui.comboOwned = b.checked; break;
+    case 'comboClear': state.ui.combo = null; comboState(); break;
+    case 'comboSet': { const c = comboState(), sl = c.slots[+b.dataset.si]; if (b.dataset.f === 'g') sl.g = b.dataset.v; else sl.t[+b.dataset.ti] = b.dataset.v; c.from = ''; break; }
     case 'cxClose': if (e.target.closest('[data-stop]') && !e.target.closest('[data-act="cxClose"].btn')) return; openCodexKey = null; break;
     case 'cxExport': {
       const blob = new Blob([JSON.stringify(window.CODEX || {}, null, 1)], { type: 'application/json' });
@@ -2155,6 +2215,14 @@ document.addEventListener('input', e => {
 document.addEventListener('change', e => {
   const t = e.target, A = t.dataset.actInput;
   if (t.dataset.model === 'src') { state.ui.src = t.value; persist(); render(); return; }
+  if (A === 'combo') {
+    const c = comboState(), f = t.dataset.f;
+    if (f === 'from') { const d = t.value && deckById(t.value); if (d) comboFromDeck(d); else c.from = ''; }
+    else if (f === 'form') c.form = t.value;
+    else if (f === 'g') { c.slots[+t.dataset.si].g = t.value; c.from = ''; }
+    else if (f === 't') { c.slots[+t.dataset.si].t[+t.dataset.ti] = t.value; c.from = ''; }
+    persist(); render(); return;
+  }
   if (t.dataset.tabcfg != null) { state.sheet.tabs[+t.dataset.tabcfg][t.dataset.f] = t.value; persist(); return; }
   if (t.dataset.ocr) {
     const it = ocr.items[+t.dataset.i]; if (!it) return;
