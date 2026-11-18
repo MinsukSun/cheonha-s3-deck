@@ -793,6 +793,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "하후돈": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {
@@ -978,6 +983,6 @@
   ],
   "v": 2
  },
- "rev": 304,
- "savedAt": "2026-11-18T08:26:39.195Z"
+ "rev": 305,
+ "savedAt": "2026-11-18T08:26:41.268Z"
 }
