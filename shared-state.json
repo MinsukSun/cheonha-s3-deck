@@ -863,6 +863,11 @@
      "owned": true,
      "stars": 1,
      "grade": 0
+    },
+    "원술": {
+     "owned": true,
+     "stars": 2,
+     "grade": 0
     }
    },
    "tactics": {
@@ -1048,6 +1053,6 @@
   ],
   "v": 2
  },
- "rev": 323,
- "savedAt": "2026-11-18T08:29:24.962Z"
+ "rev": 324,
+ "savedAt": "2026-11-18T08:29:38.042Z"
 }
