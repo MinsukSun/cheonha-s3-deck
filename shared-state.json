@@ -848,6 +848,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "화웅": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {
@@ -1033,6 +1038,6 @@
   ],
   "v": 2
  },
- "rev": 320,
- "savedAt": "2026-11-18T08:29:00.173Z"
+ "rev": 321,
+ "savedAt": "2026-11-18T08:29:03.594Z"
 }
