@@ -1873,7 +1873,107 @@ function viewData() {
 }
 
 // ───────────────────────── 렌더 진입 ─────────────────────────
-const VIEWS = { decks: viewDecks, own: viewOwn, lineup: viewLineup, coexist: viewCoexist, data: viewData };
+// ───────────────────────── 렌더: 도감 (무장·전법·진형) ─────────────────────────
+// 자료: data/codex.js (scripts/build_codex.py). 삼천 데이터를 먼저 쓰고, 빈칸은 믹스커피 게임 데이터 화면으로 채움.
+let openCodexKey = null;
+const CX_STATS = ['통솔', '무력', '지력', '선공'];
+const CX_MAX = 300;
+const cxData = () => window.CODEX || { generals: [], tactics: [], formations: [] };
+const cxGen = k => cxData().generals.find(g => g.key === k);
+const cxRate = r => (r == null ? '' : `${r}%`);
+function cxStatBars(st) {
+  if (!st) return '<p class="small muted">능력치 자료 없음</p>';
+  return `<div class="cx-stats">${CX_STATS.map(s => { const v = st[s] || {}; const w = Math.min(100, ((v.lv50 || 0) / CX_MAX) * 100);
+    return `<div class="cx-st"><span class="lab">${s}</span><span class="track"><b style="width:${w.toFixed(1)}%"></b></span><span class="val">${v.lv50 != null ? Math.round(v.lv50) : '—'}</span><span class="gr small muted">${v.growth != null ? `+${v.growth}/렙` : ''}</span></div>`; }).join('')}</div>`;
+}
+function cxUnique(u) {
+  if (!u) return '';
+  return `<div class="cx-uni"><div class="hd">${ticon(u.type)}<b>${esc(u.name || '?')}</b>${traitBadge(u.trait)}<span class="small muted">${esc([u.type, u.rate != null ? `발동 ${u.rate}%` : ''].filter(Boolean).join(' · '))}</span></div>
+    ${u.alt ? `<div class="small muted">다른 표기: ${esc(u.alt)}</div>` : ''}<div class="tdesc">${esc(u.desc || '설명 자료 없음')}</div></div>`;
+}
+function cxGenDetail(g, a) {
+  const e = G.get(g.key) || {}, own = ownsG(a, g.key), gs = genState(a, g.key);
+  const decks = DECKS.filter(d => d.kind !== 'custom' && d.slots.some(s => s.gen && s.gen.opts.includes(g.key)));
+  return `<div class="card cx-detail">
+    <div class="cx-dh">${avatar(g.key, { size: 'lg', a: own ? a : null })}<div><h3>${esc(g.name)}</h3>
+      <div class="small muted">${esc([g.season ? `S${g.season}` : '', g.fac, g.troop, g.pos || '위치 미확인', g.role].filter(Boolean).join(' · '))}</div>
+      <div class="small">${own ? `<span class="have">${esc(a.name)} 보유 · ${gs.stars || 0}돌${gs.grade ? ` ${gs.grade}품` : ''}</span>` : `<span class="muted">${esc(a.name)} 미보유${yeonBlocked(a, g.key) ? ' (연의 선택에서 제외)' : ''}</span>`}</div></div>
+      <button class="btn" data-act="cxClose" style="margin-left:auto">닫기</button></div>
+    <h4>능력치 <span class="small muted">50레벨 · 배분 포인트 제외</span></h4>${cxStatBars(g.stats)}
+    <h4>고유 전법</h4>${cxUnique(g.unique)}
+    <h4>쓰이는 덱 <span class="small muted">${decks.length}개</span></h4>
+    ${decks.length ? `<div class="chips">${decks.slice(0, 24).map(d => `<button class="chip" data-act="openDeck" data-id="${esc(d.id)}">${esc(d.name)}</button>`).join('')}${decks.length > 24 ? `<span class="small muted">외 ${decks.length - 24}개</span>` : ''}</div>` : '<p class="small muted">추천 덱에 쓰이지 않습니다.</p>'}
+    ${(g.notes || []).length ? `<p class="small warn">${g.notes.map(esc).join(' · ')}</p>` : ''}
+    <p class="small muted">출처: ${esc((g.src || []).join(', '))}</p></div>`;
+}
+function viewCodex() {
+  const u = state.ui, a = acct(), cx = cxData(), tab = u.cxTab || 'gen';
+  const seg = (k, opts, def) => `<div class="seg">${opts.map(([v, l]) => `<button data-act="set" data-k="${k}" data-v="${v}" class="${(u[k] || def) === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const head = `<div class="bar">${seg('cxTab', [['gen', `무장 ${cx.generals.length}`], ['tac', `전법 ${cx.tactics.length}`], ['form', `진형 ${cx.formations.length}`]], 'gen')}
+    <button class="btn" data-act="cxExport" title="도감 전체를 JSON 파일로 내려받습니다(모의 조합·로컬 AI 에이전트용)">JSON 내려받기</button></div>`;
+  const q = key(u.cxQ || '');
+  let body = '';
+  if (tab === 'gen') {
+    let gs = cx.generals.slice();
+    const f = (k, fn) => { if (u[k] && u[k] !== 'all') gs = gs.filter(g => fn(g, u[k])); };
+    f('cxSeason', (g, v) => String(g.season) === v); f('cxFac', (g, v) => g.fac === v); f('cxPos', (g, v) => (g.pos || '미확인') === v);
+    f('cxTroop', (g, v) => g.troop === v); f('cxUType', (g, v) => g.unique && g.unique.type === v); f('cxOwn', (g, v) => (v === 'own') === ownsG(a, g.key));
+    if (q) gs = gs.filter(g => key(g.name).includes(q) || key(g.unique && g.unique.name).includes(q));
+    const sk = u.cxSort || 'default';
+    if (CX_STATS.includes(sk)) gs.sort((x, y) => ((y.stats || {})[sk]?.lv50 || 0) - ((x.stats || {})[sk]?.lv50 || 0));
+    else if (sk === 'name') gs.sort((x, y) => x.name.localeCompare(y.name, 'ko'));
+    else if (sk === 'used') gs.sort((x, y) => ((G.get(y.key) || {}).used || 0) - ((G.get(x.key) || {}).used || 0));
+    const filters = `<div class="bar"><input type="search" placeholder="무장·고유 전법 검색" value="${esc(u.cxQ || '')}" data-model="cxQ">
+      <span class="fl"><span class="small muted">정렬</span>${seg('cxSort', [['default', '기본'], ['name', '이름'], ['used', '덱 수'], ...CX_STATS.map(s => [s, s])], 'default')}</span>
+      <span class="fl"><span class="small muted">보기</span>${seg('cxView', [['cards', '카드'], ['table', '표']], 'cards')}</span></div>
+      <div class="bar"><span class="fl"><span class="small muted">시즌</span>${seg('cxSeason', [['all', '전체'], ['1', 'S1'], ['2', 'S2'], ['3', 'S3']], 'all')}</span>
+      <span class="fl"><span class="small muted">진영</span>${seg('cxFac', [['all', '전체'], ['위', '위'], ['촉', '촉'], ['오', '오'], ['군', '군']], 'all')}</span>
+      <span class="fl"><span class="small muted">위치</span>${seg('cxPos', [['all', '전체'], ['전열', '전열'], ['균형', '균형'], ['후열', '후열'], ['미확인', '미확인']], 'all')}</span></div>
+      <div class="bar"><span class="fl"><span class="small muted">병종</span>${seg('cxTroop', [['all', '전체'], ['기병', '기병'], ['방패병', '방패병'], ['궁병', '궁병'], ['창병', '창병']], 'all')}</span>
+      <span class="fl"><span class="small muted">고유 유형</span>${seg('cxUType', [['all', '전체'], ['지휘', '지휘'], ['액티브', '액티브'], ['패시브', '패시브'], ['추격', '추격']], 'all')}</span>
+      <span class="fl"><span class="small muted">${esc(a.name)}</span>${seg('cxOwn', [['all', '전체'], ['own', '보유'], ['miss', '미보유']], 'all')}</span></div>`;
+    const cards = u.cxView === 'table'
+      ? `<div class="tbl-wrap"><table class="cx-tbl"><thead><tr><th>무장</th><th>시즌</th><th>진영</th><th>병종</th><th>위치</th>${CX_STATS.map(s => `<th>${s}</th>`).join('')}<th>고유 전법</th><th>덱</th></tr></thead><tbody>
+        ${gs.map(g => `<tr class="${ownsG(a, g.key) ? 'own' : ''}"><td><button class="lnk" data-act="cxOpen" data-k="${esc(g.key)}">${esc(g.name)}</button></td><td>${g.season ? `S${g.season}` : ''}</td><td>${esc(g.fac || '')}</td><td>${esc(g.troop || '')}</td><td>${esc(g.pos || '—')}</td>
+          ${CX_STATS.map(s => { const v = (g.stats || {})[s]; return `<td class="num">${v && v.lv50 != null ? Math.round(v.lv50) : ''}${v && v.growth != null ? `<span class="small muted"> ${v.growth}</span>` : ''}</td>`; }).join('')}
+          <td>${g.unique ? `${ticon(g.unique.type)}${esc(g.unique.name || '')}${traitBadge(g.unique.trait)}` : ''}</td><td class="num">${(G.get(g.key) || {}).used || ''}</td></tr>`).join('')}</tbody></table></div>`
+      : `<div class="cx-grid">${gs.map(g => { const own = ownsG(a, g.key), st = g.stats || {};
+        return `<button class="cx-card ${own ? 'on' : ''}" data-act="cxOpen" data-k="${esc(g.key)}">${avatar(g.key, { a: own ? a : null })}
+          <span class="cx-c"><b>${esc(g.name)}</b><span class="small muted">${esc([g.season ? `S${g.season}` : '', g.pos || '위치?', g.troop].filter(Boolean).join(' · '))}</span>
+          <span class="cx-u">${g.unique ? `${ticon(g.unique.type)}${esc(g.unique.name || '')}` : ''}</span>
+          <span class="cx-mini">${CX_STATS.map(s => `<i title="${s}">${s[0]}${st[s] && st[s].lv50 != null ? Math.round(st[s].lv50) : '—'}</i>`).join('')}</span></span></button>`; }).join('')}</div>`;
+    body = filters + `<p class="small muted">${gs.length}명 · 카드를 누르면 능력치·고유 전법·쓰이는 덱이 보입니다. 능력치는 50레벨 기본값(배분 포인트·돌파·병법 제외)이고, '+n/렙'은 레벨당 성장입니다.</p>` + (gs.length ? cards : '<div class="empty">조건에 맞는 무장이 없습니다.</div>');
+    const og = openCodexKey && cxGen(openCodexKey);
+    if (og) body += `<div class="deck-pop" data-act="cxClose"><div data-stop="1">${cxGenDetail(og, a)}</div></div>`;
+    if (!og && openDeckId && deckById(openDeckId)) body += `<div class="deck-pop" data-act="closeDeck"><div data-stop="1">${deckCard(deckById(openDeckId), a)}</div></div>`;
+  } else if (tab === 'tac') {
+    let ts = cx.tactics.slice();
+    if (u.cxTType && u.cxTType !== 'all') ts = ts.filter(t => t.type === u.cxTType);
+    if (u.cxTTrait && u.cxTTrait !== 'all') ts = ts.filter(t => t.trait === u.cxTTrait);
+    if (u.cxTSeason && u.cxTSeason !== 'all') ts = ts.filter(t => (t.season || '?') === u.cxTSeason);
+    if (q) ts = ts.filter(t => key(t.name).includes(q) || key(t.desc).includes(q) || key((t.tags || []).join('')).includes(q));
+    const sk = u.cxTSort || 'type', TY = ['지휘', '액티브', '패시브', '추격'];
+    ts.sort(sk === 'rate' ? (x, y) => (y.rate || 0) - (x.rate || 0) : sk === 'used' ? (x, y) => ((T.get(y.key) || {}).used || 0) - ((T.get(x.key) || {}).used || 0)
+      : sk === 'name' ? (x, y) => x.name.localeCompare(y.name, 'ko') : (x, y) => TY.indexOf(x.type) - TY.indexOf(y.type) || x.name.localeCompare(y.name, 'ko'));
+    body = `<div class="bar"><input type="search" placeholder="전법 이름·설명·태그 검색" value="${esc(u.cxQ || '')}" data-model="cxQ">
+      <span class="fl"><span class="small muted">정렬</span>${seg('cxTSort', [['type', '유형'], ['name', '이름'], ['rate', '발동률'], ['used', '덱 수']], 'type')}</span></div>
+      <div class="bar"><span class="fl"><span class="small muted">유형</span>${seg('cxTType', [['all', '전체'], ...TY.map(t => [t, t])], 'all')}</span>
+      <span class="fl"><span class="small muted">특성</span>${seg('cxTTrait', [['all', '전체'], ...TRAITS.map(t => [t, t])], 'all')}</span>
+      <span class="fl"><span class="small muted">시즌</span>${seg('cxTSeason', [['all', '전체'], ['S1', 'S1'], ['S2', 'S2'], ['S3', 'S3']], 'all')}</span></div>
+      <p class="small muted">${ts.length}개 · 발동률은 10레벨 기준입니다. '보유'는 ${esc(a.name)} 계정의 전법 수(영본 포함)입니다.</p>
+      <div class="tbl-wrap"><table class="cx-tbl tac"><thead><tr><th>전법</th><th>유형</th><th>특성</th><th>발동</th><th>시즌</th><th>덱</th><th>보유</th><th>효과</th></tr></thead><tbody>
+      ${ts.map(t => { const n = tCount(a, t.key); return `<tr class="${n ? 'own' : ''}"><td class="nm">${ticon(t.type)}<b>${esc(t.name)}</b>${t.orig ? `<div class="small muted">${esc(t.orig)}</div>` : ''}</td><td>${esc(t.type || '')}</td><td>${traitBadge(t.trait)}</td><td class="num">${cxRate(t.rate)}</td><td>${esc(t.season || '')}</td>
+        <td class="num">${(T.get(t.key) || {}).used || ''}</td><td class="num">${n ? (n > 1 ? '×2' : '○') : ''}</td><td class="desc">${esc(t.desc || '설명 없음')}${(t.tags || []).length ? `<div class="tags">${t.tags.map(x => `<span class="tag sub">${esc(x)}</span>`).join('')}</div>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
+  } else {
+    body = `<p class="small muted">자리별 피격률은 적의 일반 공격·단일 대상 전법이 그 자리를 노릴 확률입니다. 앞쪽 자리가 전열입니다. 효과 수치는 기본값이며 건물 기술로 강화됩니다.</p>
+      <div class="tbl-wrap"><table class="cx-tbl"><thead><tr><th>진형</th><th>전열</th><th>피격률 (자리별)</th><th>효과</th></tr></thead><tbody>
+      ${cx.formations.map(f => `<tr><td><b>${esc(f.name)}</b>${f.season ? ` <span class="small muted">S${f.season}</span>` : ''}</td><td class="num">${f.front}명</td>
+        <td>${f.hit.map((h, i) => `<span class="tag ${i < f.front ? '' : 'sub'}">${i < f.front ? '전' : '후'} ${h}%</span>`).join(' ')}</td><td>${f.fx.map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table></div>`;
+  }
+  return head + body + `<p class="small muted" style="margin-top:16px">출처: <a href="https://three-kingdoms-data-browser.vercel.app/info/" target="_blank" rel="noopener">삼천 데이터</a>(무장·전법·진형 표)를 먼저 쓰고, 빈칸(S1 성장률, 일부 S3·연의 무장 능력치, 전법 발동률)은 <a href="https://sam.mixcoffee.org/data" target="_blank" rel="noopener">믹스커피 게임 데이터</a> 화면에서 확인해 채웠습니다. 정리일 ${esc(cx.built || '')}.</p>`;
+}
+
+const VIEWS = { decks: viewDecks, own: viewOwn, lineup: viewLineup, coexist: viewCoexist, codex: viewCodex, data: viewData };
 function render() {
   renderAcctSwitch();
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === state.ui.tab));
@@ -1944,7 +2044,13 @@ document.addEventListener('click', e => {
   switch (A) {
     case 'acct': state.active = +b.dataset.i; break;
     case 'set': state.ui[b.dataset.k] = b.dataset.v; break;
-    case 'openDeck': openDeckId = b.dataset.id; break;
+    case 'openDeck': openDeckId = b.dataset.id; openCodexKey = null; break;
+    case 'cxOpen': openCodexKey = b.dataset.k; break;
+    case 'cxClose': if (e.target.closest('[data-stop]') && !e.target.closest('[data-act="cxClose"].btn')) return; openCodexKey = null; break;
+    case 'cxExport': {
+      const blob = new Blob([JSON.stringify(window.CODEX || {}, null, 1)], { type: 'application/json' });
+      const l = document.createElement('a'); l.href = URL.createObjectURL(blob); l.download = `천하결전-W1-도감-${(window.CODEX || {}).built || 'data'}.json`; l.click(); return;
+    }
     case 'tacReset': if (ai.tacPick) delete ai.tacPick[b.dataset.id]; break;
     case 'closeDeck': if (e.target.closest('[data-stop]')) return; openDeckId = null; break;
     case 'toggleSub': ai.allowSub = b.checked; break;
