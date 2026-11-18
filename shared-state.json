@@ -828,6 +828,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "좌자": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {
@@ -1013,6 +1018,6 @@
   ],
   "v": 2
  },
- "rev": 316,
- "savedAt": "2026-11-18T08:28:17.597Z"
+ "rev": 317,
+ "savedAt": "2026-11-18T08:28:21.903Z"
 }
