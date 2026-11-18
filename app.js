@@ -1909,15 +1909,7 @@ function cxGenDetail(g, a) {
 // ── 도감 > 조합 분석 (combo.js) ──
 const comboState = () => { const u = state.ui; if (!u.combo || !Array.isArray(u.combo.slots)) u.combo = { form: '', from: '', slots: [0, 1, 2].map(() => ({ g: '', t: ['', ''] })) }; return u.combo; };
 const fitTag = f => (!f ? '' : `<span class="tag ${f.fit >= 0.75 ? 'ok' : f.fit >= 0.45 ? '' : 'warn'}" title="${esc(f.stat)} ${f.value}">${f.fit >= 0.75 ? '궁합 좋음' : f.fit >= 0.45 ? '보통' : '약함'} · ${esc(f.stat)} ${f.value}</span>`);
-function comboFromDeck(d) {
-  const cx = cxData(), c = comboState();
-  const tn = k => { const t = cx.tactics.find(x => x.key === k); return t ? t.name : tName(k); };
-  const gs = d.slots.filter(s => s.gen).slice(0, 3);
-  c.slots = [0, 1, 2].map(i => { const s = gs[i]; if (!s) return { g: '', t: ['', ''] }; const k = s.gen.opts[0]; const cg = cxGen(k);
-    return { g: cg ? cg.name : gName(k), t: [0, 1].map(j => (s.tactics[j] ? tn(s.tactics[j].opts[0]) : '')) }; });
-  const f = window.TK3Combo.findForm(cx, d.formation); c.form = f ? f.name : '';
-  c.from = d.id;
-}
+function comboFromDeck(d) { const c = comboState(), t = deckTeam(d); c.slots = t.slots; c.form = t.form; c.from = d.id; }
 function viewCombo(a) {
   const C = window.TK3Combo, cx = cxData(), c = comboState(), u = state.ui;
   if (!C) return '<div class="empty">combo.js를 불러오지 못했습니다.</div>';
@@ -1961,10 +1953,98 @@ function viewCombo(a) {
   return bar + `<div class="cb-grid">${slots.map(slotCard).join('')}</div>` + res +
     `<p class="small muted" style="margin-top:10px">전열/후열은 진형의 전열 자리 수만큼 선호 위치가 맞는 무장을 자동으로 배치한 결과입니다. 점수: 능력치 궁합 40(병기→무력, 책략→지력, 문무→둘의 평균, 50레벨 기준 250이면 만점) + 역할 분담 30(피해·생존 각 10, 방해·보조 각 5) + 위치 15 + 문제 없음 15. 대체 후보는 효과 태그·유형·특성이 비슷하고 그 무장의 능력치에 맞을수록 위에 옵니다. ✓는 ${esc(a.name)} 보유 표시입니다. 분석 로직은 <code>combo.js</code>에 따로 있어 로컬 에이전트가 같은 계산을 쓸 수 있습니다.</p>`;
 }
+// ── 도감 > 모의전투 (sim.js) ──
+let simRes = null;   // { kind: 'vs'|'gauntlet'|'alts', busy, ... }
+function deckTeam(d) {
+  const cx = cxData();
+  const tn = k => { const t = cx.tactics.find(x => x.key === k); return t ? t.name : tName(k); };
+  const gs = d.slots.filter(s => s.gen).slice(0, 3);
+  const f = window.TK3Combo.findForm(cx, d.formation);
+  return { form: f ? f.name : '', slots: [0, 1, 2].map(i => { const s = gs[i]; if (!s) return { g: '', t: ['', ''] }; const k = s.gen.opts[0]; const cg = cxGen(k);
+    return { g: cg ? cg.name : gName(k), t: [0, 1].map(j => (s.tactics[j] ? tn(s.tactics[j].opts[0]) : '')) }; }) };
+}
+const simDecks = () => DECKS.filter(d => d.kind !== 'custom' && d.kind !== 'community' && d.slots.filter(s => s.gen).length >= 3).sort((x, y) => (x.tier ?? 9) - (y.tier ?? 9) || x.name.localeCompare(y.name, 'ko'));
+function simOpponents() { const seen = new Set(); return simDecks().filter(d => d.tier != null && d.tier <= 1 && !seen.has(d.name) && seen.add(d.name)).map(d => ({ name: d.name, tier: d.tierLabel, team: deckTeam(d) })); }
+const teamText = t => t.slots.filter(s => s.g).map(s => `${s.g}(${s.t.filter(Boolean).join('·') || '전법 없음'})`).join(' / ') + (t.form ? ` · ${t.form}` : '');
+const pctTxt = v => `${Math.round(v * 100)}%`;
+function simRun(kind) {
+  const S = window.TK3Sim, cx = cxData(), u = state.ui, me = JSON.parse(JSON.stringify(comboState()));
+  const n = +(u.simN || 300), o = { n, troops: +(u.simTroops || 10000), seed: 20261118 };
+  const opDeck = u.simOpp && deckById(u.simOpp);
+  if (!me.slots.some(s => s.g)) return toast('먼저 조합 분석에서 아군 무장을 고르세요');
+  if ((kind === 'vs' || kind === 'log') && !opDeck) return toast('상대 덱을 고르세요');
+  simRes = { kind, busy: true }; render();
+  setTimeout(() => {
+    const t0 = Date.now();
+    if (kind === 'vs' || kind === 'log') {
+      const op = deckTeam(opDeck);
+      const r = S.simulate(me, op, cx, { ...o, log: true });
+      simRes = { kind, me, op, opName: opDeck.name, r, ms: Date.now() - t0 };
+    } else if (kind === 'gauntlet') {
+      const ops = simOpponents();
+      const g = S.gauntlet(me, ops, cx, { ...o, n: Math.max(50, Math.round(n / 3)) });
+      simRes = { kind, me, g, avg: g.reduce((a, x) => a + (x.win || 0), 0) / (g.length || 1), ms: Date.now() - t0 };
+    } else if (kind === 'alts') {
+      const C = window.TK3Combo, ownT = k => tCount(acct(), k) > 0, ownG = k => ownsG(acct(), k);
+      const ops = opDeck ? [{ name: opDeck.name, team: deckTeam(opDeck) }] : simOpponents();
+      const each = opDeck ? n : Math.max(30, Math.round(n / 10));
+      const score = team => { const g = S.gauntlet(team, ops, cx, { ...o, n: each }); return { win: g.reduce((a, x) => a + (x.win || 0), 0) / g.length, lose: g.reduce((a, x) => a + (x.lose || 0), 0) / g.length }; };
+      const base = score(me); const rows = [];
+      me.slots.forEach((s, si) => {
+        if (!s.g) return;
+        [0, 1].forEach(ti => C.altTactics(me, si, ti, cx, { owned: u.comboOwned ? ownT : null, n: 3 }).forEach(a => {
+          const t = JSON.parse(JSON.stringify(me)); t.slots[si].t[ti] = a.name; const r = score(t);
+          rows.push({ what: 't', si, ti, from: s.t[ti] || '(빈칸)', to: a.name, owner: s.g, ...r, d: r.win - base.win });
+        }));
+        C.altGenerals(me, si, cx, { owned: u.comboOwned ? ownG : null, n: 3 }).forEach(a => {
+          const t = JSON.parse(JSON.stringify(me)); t.slots[si].g = a.name; const r = score(t);
+          rows.push({ what: 'g', si, from: s.g, to: a.name, ...r, d: r.win - base.win });
+        });
+      });
+      rows.sort((x, y) => y.d - x.d);
+      simRes = { kind, me, base, rows, opName: opDeck ? opDeck.name : `티어 덱 ${ops.length}개`, ms: Date.now() - t0 };
+    }
+    render();
+  }, 30);
+}
+function viewSim(a) {
+  const S = window.TK3Sim, u = state.ui, me = comboState();
+  if (!S) return '<div class="empty">sim.js를 불러오지 못했습니다.</div>';
+  const decks = simDecks();
+  const bar = `<div class="card"><div class="small"><b>아군</b> (조합 분석에서 고른 조합): ${me.slots.some(s => s.g) ? esc(teamText(me)) : '<span class="muted">비어 있음 — 조합 분석 탭에서 먼저 고르세요</span>'}</div>
+    <div class="bar" style="margin:8px 0 0"><label class="small">상대 덱 <select data-act-input="simOpt" data-k="simOpp"><option value="">— 고르기 —</option>${decks.map(d => `<option value="${esc(d.id)}" ${d.id === u.simOpp ? 'selected' : ''}>${esc([d.tierLabel, d.name].filter(Boolean).join(' · '))}</option>`).join('')}</select></label>
+    <label class="small">반복 <select data-act-input="simOpt" data-k="simN">${[100, 300, 1000].map(v => `<option ${+(u.simN || 300) === v ? 'selected' : ''}>${v}</option>`).join('')}</select>회</label>
+    <label class="small">병력 <select data-act-input="simOpt" data-k="simTroops">${[6000, 8000, 10000, 12000].map(v => `<option ${+(u.simTroops || 10000) === v ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
+    <div class="bar" style="margin:0"><button class="btn primary" data-act="simRun" data-k="vs">상대 덱과 붙이기</button><button class="btn" data-act="simRun" data-k="gauntlet" title="T0~T1 추천 덱 전체와 한 번씩 붙입니다">티어 덱 전체와 붙이기</button><button class="btn" data-act="simRun" data-k="alts" title="전법마다 대체 후보 3개, 무장마다 대체 후보 3명으로 바꿔 보고 승률 변화를 봅니다. 상대 덱을 고르지 않으면 티어 덱 전체가 상대입니다">대체 후보 시험</button></div></div>`;
+  let body = '';
+  const R = simRes;
+  if (R && R.busy) body = '<div class="empty">돌리는 중…</div>';
+  else if (R && (R.kind === 'vs' || R.kind === 'log') && R.r && !R.r.error) {
+    const r = R.r, units = Object.values(r.units);
+    const tbl = side => `<table class="cx-tbl"><thead><tr><th>${side === 'A' ? '아군' : '상대'}</th><th>위치</th><th>준 피해</th><th>치유</th><th>받은 피해</th><th>생존</th><th>발동(평균)</th></tr></thead><tbody>${units.filter(x => x.side === side).map(x => `<tr><td><b>${esc(x.name)}</b></td><td>${x.pos}</td><td class="num">${x.dealt}</td><td class="num">${x.healed || ''}</td><td class="num">${x.taken}</td><td class="num">${pctTxt(x.alive)}</td><td class="small">${Object.entries(x.casts).map(([t, c]) => `${esc(t)} ${c}`).join(', ')}</td></tr>`).join('')}</tbody></table>`;
+    body = `<div class="card"><h4 style="margin-top:0">vs ${esc(R.opName)} <span class="small muted">${esc(teamText(R.op))}</span></h4>
+      <div class="sim-wdl"><b class="w" style="flex:${r.win || 0.001}">승 ${pctTxt(r.winRate)}</b><b class="d" style="flex:${r.draw || 0.001}">무 ${pctTxt(r.drawRate)}</b><b class="l" style="flex:${r.lose || 0.001}">패 ${pctTxt(r.loseRate)}</b></div>
+      <p class="small muted">${r.n}회 · 평균 ${r.turns.toFixed(1)}턴 · 남은 병력 아군 ${pctTxt(r.hpA)} / 상대 ${pctTxt(r.hpB)} · ${R.ms}ms</p>
+      <div class="tbl-wrap">${tbl('A')}</div><div class="tbl-wrap" style="margin-top:8px">${tbl('B')}</div>
+      <details style="margin-top:10px"><summary class="small">전법별로 반영한 효과 (${r.parsed.length}개)</summary><ul class="small">${r.parsed.map(p => `<li><b>${esc(p.name)}</b> <span class="muted">${esc(p.type)} ${Math.round(p.rate * 100)}%</span> — ${p.effects.length ? p.effects.map(esc).join(', ') : '<span class="warn">반영한 효과 없음 (설명에서 수치를 못 뽑음)</span>'}</li>`).join('')}</ul></details>
+      <details style="margin-top:6px"><summary class="small">전투 기록 (첫 판)</summary><pre class="sim-log">${esc((r.log || []).join('\n'))}</pre></details></div>`;
+  } else if (R && R.kind === 'gauntlet') {
+    body = `<div class="card"><h4 style="margin-top:0">티어 덱 ${R.g.length}개와 붙인 결과 <span class="small muted">평균 승률 ${pctTxt(R.avg)} · ${R.ms}ms</span></h4>
+      <div class="tbl-wrap"><table class="cx-tbl"><thead><tr><th>상대</th><th>티어</th><th>승</th><th>무</th><th>패</th><th>평균 턴</th></tr></thead><tbody>
+      ${R.g.slice().sort((x, y) => y.win - x.win).map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.tier || '')}</td><td class="num">${pctTxt(x.win)}</td><td class="num">${pctTxt(x.draw)}</td><td class="num">${pctTxt(x.lose)}</td><td class="num">${x.turns ? x.turns.toFixed(1) : ''}</td></tr>`).join('')}</tbody></table></div></div>`;
+  } else if (R && R.kind === 'alts') {
+    body = `<div class="card"><h4 style="margin-top:0">대체 후보 시험 <span class="small muted">상대: ${esc(R.opName)} · 지금 조합 승률 ${pctTxt(R.base.win)} · ${R.ms}ms</span></h4>
+      <div class="tbl-wrap"><table class="cx-tbl"><thead><tr><th>바꿀 곳</th><th>지금</th><th>대체</th><th>승률</th><th>변화</th><th></th></tr></thead><tbody>
+      ${R.rows.map(x => `<tr><td>${x.si + 1}번 ${x.what === 'g' ? '무장' : `${esc(x.owner)} 전법${x.ti + 1}`}</td><td>${esc(x.from)}</td><td><b>${esc(x.to)}</b></td><td class="num">${pctTxt(x.win)}</td><td class="num ${x.d > 0.02 ? 'have' : x.d < -0.02 ? 'warn' : 'muted'}">${x.d >= 0 ? '+' : ''}${Math.round(x.d * 100)}%p</td>
+        <td><button class="btn sm" data-act="comboSet" data-si="${x.si}" data-f="${x.what}" ${x.what === 't' ? `data-ti="${x.ti}"` : ''} data-v="${esc(x.to)}">적용</button></td></tr>`).join('')}</tbody></table></div>
+      <p class="small muted">후보는 조합 분석의 대체 후보 상위 3개(전법) · 3명(무장)입니다. '적용'을 누르면 조합이 바뀌고, 다시 돌려서 확인할 수 있습니다.</p></div>`;
+  } else if (R && R.r && R.r.error) body = `<div class="empty">${esc(R.r.error)}</div>`;
+  return bar + body + `<p class="small muted" style="margin-top:12px"><b>간이 엔진입니다.</b> 능력치·발동률과 전법 설명에서 뽑은 수치(피해·치유 계수, 피해 감소·증가, 능력치 증가, 제어)로 8턴을 돌립니다. 피해 공식, 병종 상성, 병법·장비, 상태 이상 규칙은 공개 자료가 없어 넣지 않았거나 추정했습니다. 그래서 승률 숫자 자체보다 같은 조건에서 <b>A안과 B안 중 무엇이 나은지</b> 비교하는 데 쓰세요. 무장마다 배분 포인트 50을 무력·지력 중 높은 쪽에 넣고, 진형에 따라 전열/후열을 자동 배치합니다. 명령줄 실행은 README의 '모의전투'를 보세요.</p>`;
+}
 function viewCodex() {
   const u = state.ui, a = acct(), cx = cxData(), tab = u.cxTab || 'gen';
   const seg = (k, opts, def) => `<div class="seg">${opts.map(([v, l]) => `<button data-act="set" data-k="${k}" data-v="${v}" class="${(u[k] || def) === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
-  const head = `<div class="bar">${seg('cxTab', [['gen', `무장 ${cx.generals.length}`], ['tac', `전법 ${cx.tactics.length}`], ['form', `진형 ${cx.formations.length}`], ['combo', '조합 분석']], 'gen')}
+  const head = `<div class="bar">${seg('cxTab', [['gen', `무장 ${cx.generals.length}`], ['tac', `전법 ${cx.tactics.length}`], ['form', `진형 ${cx.formations.length}`], ['combo', '조합 분석'], ['sim', '모의전투']], 'gen')}
     <button class="btn" data-act="cxExport" title="도감 전체를 JSON 파일로 내려받습니다(모의 조합·로컬 AI 에이전트용)">JSON 내려받기</button></div>`;
   const q = key(u.cxQ || '');
   let body = '';
@@ -2021,6 +2101,8 @@ function viewCodex() {
         <td class="num">${(T.get(t.key) || {}).used || ''}</td><td class="num">${n ? (n > 1 ? '×2' : '○') : ''}</td><td class="desc">${esc(t.desc || '설명 없음')}${(t.tags || []).length ? `<div class="tags">${t.tags.map(x => `<span class="tag sub">${esc(x)}</span>`).join('')}</div>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
   } else if (tab === 'combo') {
     body = viewCombo(a);
+  } else if (tab === 'sim') {
+    body = viewSim(a);
   } else {
     body = `<p class="small muted">자리별 피격률은 적의 일반 공격·단일 대상 전법이 그 자리를 노릴 확률입니다. 앞쪽 자리가 전열입니다. 효과 수치는 기본값이며 건물 기술로 강화됩니다.</p>
       <div class="tbl-wrap"><table class="cx-tbl"><thead><tr><th>진형</th><th>전열</th><th>피격률 (자리별)</th><th>효과</th></tr></thead><tbody>
@@ -2103,6 +2185,7 @@ document.addEventListener('click', e => {
     case 'set': state.ui[b.dataset.k] = b.dataset.v; break;
     case 'openDeck': openDeckId = b.dataset.id; openCodexKey = null; break;
     case 'cxOpen': openCodexKey = b.dataset.k; break;
+    case 'simRun': return simRun(b.dataset.k);
     case 'comboOwned': state.ui.comboOwned = b.checked; break;
     case 'comboClear': state.ui.combo = null; comboState(); break;
     case 'comboSet': { const c = comboState(), sl = c.slots[+b.dataset.si]; if (b.dataset.f === 'g') sl.g = b.dataset.v; else sl.t[+b.dataset.ti] = b.dataset.v; c.from = ''; break; }
@@ -2215,6 +2298,7 @@ document.addEventListener('input', e => {
 document.addEventListener('change', e => {
   const t = e.target, A = t.dataset.actInput;
   if (t.dataset.model === 'src') { state.ui.src = t.value; persist(); render(); return; }
+  if (A === 'simOpt') { state.ui[t.dataset.k] = t.value; persist(); render(); return; }
   if (A === 'combo') {
     const c = comboState(), f = t.dataset.f;
     if (f === 'from') { const d = t.value && deckById(t.value); if (d) comboFromDeck(d); else c.from = ''; }
