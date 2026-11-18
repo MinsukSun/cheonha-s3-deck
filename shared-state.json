@@ -788,6 +788,11 @@
      "owned": true,
      "stars": 2,
      "grade": 0
+    },
+    "장춘화": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {
@@ -973,6 +978,6 @@
   ],
   "v": 2
  },
- "rev": 303,
- "savedAt": "2026-11-18T08:26:27.557Z"
+ "rev": 304,
+ "savedAt": "2026-11-18T08:26:39.195Z"
 }
