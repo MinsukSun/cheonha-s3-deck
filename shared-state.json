@@ -778,6 +778,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "순유": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {
@@ -963,6 +968,6 @@
   ],
   "v": 2
  },
- "rev": 301,
- "savedAt": "2026-11-16T20:30:39.955Z"
+ "rev": 302,
+ "savedAt": "2026-11-18T08:26:10.794Z"
 }
