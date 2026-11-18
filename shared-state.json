@@ -823,6 +823,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "장소": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {
@@ -1008,6 +1013,6 @@
   ],
   "v": 2
  },
- "rev": 314,
- "savedAt": "2026-11-18T08:27:51.272Z"
+ "rev": 315,
+ "savedAt": "2026-11-18T08:28:01.383Z"
 }
