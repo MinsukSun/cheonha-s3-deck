@@ -853,6 +853,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "마등": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {
@@ -1038,6 +1043,6 @@
   ],
   "v": 2
  },
- "rev": 321,
- "savedAt": "2026-11-18T08:29:03.594Z"
+ "rev": 322,
+ "savedAt": "2026-11-18T08:29:08.778Z"
 }
