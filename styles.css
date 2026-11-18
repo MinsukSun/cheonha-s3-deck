@@ -299,3 +299,4 @@ ol.pull li { margin-bottom: 4px; }
 .ga-row .ga-l span { font-size: 10px; font-weight: 400; color: var(--muted); }
 .ga-row > .chips, .ga-row > .tlist { padding: 6px 8px; margin: 0; }
 .ga-row.none .ga-l { color: var(--muted); }
+.ga-row > .av-grid { padding: 6px 8px; margin: 0; }

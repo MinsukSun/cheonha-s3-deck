@@ -1155,6 +1155,12 @@ const koSortKey = n => String(n).replace(/^sp\s*/i, '').replace(/\s+/g, '') + (/
 const byKoName = (x, y) => koSortKey(x.name).localeCompare(koSortKey(y.name), 'ko');
 function viewOwn() {
   const a = acct(), u = state.ui, q = key(u.ownQ);
+  const GA = ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+  const gaOf = n => { const c = choOf(String(n).replace(/^(sp|연의)\s*/i, '').trim()[0] || ''); const f = { 'ㄲ': 'ㄱ', 'ㄸ': 'ㄷ', 'ㅃ': 'ㅂ', 'ㅆ': 'ㅅ', 'ㅉ': 'ㅈ' }[c] || c; return GA.includes(f) ? f : '기타'; };
+  // 가나다 행: ㄱ~ㅎ 14줄 (빈 줄도 자리를 지킴). 이름 앞 'SP'·'연의'는 빼고 첫소리를 봅니다.
+  const gaRowsOf = (items, has, chip, box) => `<div class="ga-rows">${[...GA, '기타'].map(l => { const it = items.filter(e => gaOf(e.name) === l).sort((x, y) => koSortKey(String(x.name).replace(/^연의\s*/, '')).localeCompare(koSortKey(String(y.name).replace(/^연의\s*/, '')), 'ko') || x.name.localeCompare(y.name, 'ko'));
+    if (l === '기타' && !it.length) return '';
+    return `<div class="ga-row ${it.length ? '' : 'none'}"><b class="ga-l">${l}<span>${it.filter(has).length}/${it.length}</span></b><div class="${box}">${it.length ? it.map(chip).join('') : '<span class="small muted">—</span>'}</div></div>`; }).join('')}</div>`;
   const head = `
   <div class="bar">
     <input type="text" value="${esc(a.name)}" data-act-input="rename" style="max-width:160px" title="계정 이름">
@@ -1178,6 +1184,8 @@ function viewOwn() {
     let gens = [...G.values()].filter(e => (e.season || 0) <= MAX_SEASON);
     if (u.ownUsedOnlyV2) gens = gens.filter(e => e.used > 0 || ownsG(a, e.key));
     if (q) gens = gens.filter(e => hmatch(e.name, u.ownQ) || hmatch(e.key, u.ownQ));
+    const facOf = e => e.fac || (G.get(yeonBase(e.key)) || {}).fac || '';
+    if (u.ownFac && u.ownFac !== 'all') gens = gens.filter(e => facOf(e) === u.ownFac);
     const chip = e => {
       const g = a.generals[e.key] || {};
       const tip = [e.season ? `시즌${e.season}` : '', e.skill, e.type, e.cat].filter(Boolean).join(' · ') + (e.desc ? '\n' + e.desc : '');
@@ -1187,8 +1195,13 @@ function viewOwn() {
     // 시즌별 묶음: 연의 무장은 따로, 도감에 없는 무장은 '기타'
     const groupsDef = [['S3 연의 무장', e => /^연의/.test(e.key)], ['시즌3 무장', e => e.season === 3], ['시즌2 무장', e => e.season === 2], ['시즌1 무장', e => e.season === 1], ['기타 (도감 미등록)', () => true]];
     const left = new Set(gens);
-    const parts = groupsDef.map(([lab, f]) => { const items = [...left].filter(f); items.forEach(x => left.delete(x)); return section(lab, items, e => ownsG(a, e.key), chip, 'av-grid'); }).join('');
-    return head + sortBar + `<p class="small muted"><b>돌파</b> 모드: 초상을 누를 때마다 <b>미보유 → 0돌 → 1돌 → … → 5돌 → 미보유</b>로 바뀝니다(초상 아래쪽 마름모 = 돌파). <b>품</b> 모드: 누를 때마다 품이 0→5→0으로 바뀝니다(미보유면 0돌로 보유 처리). 초상 색은 진영(위 파랑 · 촉 초록 · 오 빨강 · 군 황토), 오른쪽 위 글자는 기본 병종입니다. 회색 초상은 미보유이고, 이름 옆 괄호 숫자는 그 무장이 쓰이는 덱 수입니다.</p>` + (parts || '<div class="empty">표시할 무장이 없습니다.</div>');
+    const ownedG = e => ownsG(a, e.key);
+    const parts = u.ownGenGroup === 'abc' ? gaRowsOf(gens, ownedG, chip, 'av-grid') : groupsDef.map(([lab, f]) => { const items = [...left].filter(f); items.forEach(x => left.delete(x)); return section(lab, items, e => ownsG(a, e.key), chip, 'av-grid'); }).join('');
+    const segG = (k, opts, def) => `<div class="seg">${opts.map(([v, l]) => `<button data-act="set" data-k="${k}" data-v="${v}" class="${(u[k] || def) === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+    const genBar = `<div class="bar"><span class="fl"><span class="small muted">진영</span>${segG('ownFac', [['all', '전체'], ['위', '위'], ['촉', '촉'], ['오', '오'], ['군', '군']], 'all')}</span>
+      <span class="fl"><span class="small muted">묶기</span>${segG('ownGenGroup', [['season', '시즌별'], ['abc', '가나다 행']], 'season')}</span>
+      <span class="small muted">${gens.length}명 · 보유 ${gens.filter(ownedG).length}</span></div>`;
+    return head + (u.ownGenGroup === 'abc' ? '' : sortBar) + genBar + `<p class="small muted"><b>돌파</b> 모드: 초상을 누를 때마다 <b>미보유 → 0돌 → 1돌 → … → 5돌 → 미보유</b>로 바뀝니다(초상 아래쪽 마름모 = 돌파). <b>품</b> 모드: 누를 때마다 품이 0→5→0으로 바뀝니다(미보유면 0돌로 보유 처리). 초상 색은 진영(위 파랑 · 촉 초록 · 오 빨강 · 군 황토), 오른쪽 위 글자는 기본 병종입니다. 회색 초상은 미보유이고, 이름 옆 괄호 숫자는 그 무장이 쓰이는 덱 수입니다.</p>` + (parts || '<div class="empty">표시할 무장이 없습니다.</div>');
   }
   let tacs = [...T.values()];
   if (u.ownUsedOnlyV2) tacs = tacs.filter(e => e.used > 0 || tCount(a, e.key));
@@ -1205,12 +1218,7 @@ function viewOwn() {
   if (u.ownTtype && u.ownTtype !== 'all') tacs = tacs.filter(e => e.ttype === u.ownTtype);
   const box = u.ownTacView === 'list' ? 'tlist' : 'chips', has = e => tCount(a, e.key) > 0;
   const byTrait = u.ownTacGroup === 'trait';
-  const GA = ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
-  const gaOf = n => { const c = choOf(String(n).replace(/^sp\s*/i, '').trim()[0] || ''); const f = { 'ㄲ': 'ㄱ', 'ㄸ': 'ㄷ', 'ㅃ': 'ㅂ', 'ㅆ': 'ㅅ', 'ㅉ': 'ㅈ' }[c] || c; return GA.includes(f) ? f : '기타'; };
-  const gaRows = () => `<div class="ga-rows">${[...GA, '기타'].map(l => { const it = tacs.filter(e => gaOf(e.name) === l).sort((x, y) => koSortKey(x.name).localeCompare(koSortKey(y.name), 'ko'));
-    if (l === '기타' && !it.length) return '';
-    return `<div class="ga-row ${it.length ? '' : 'none'}"><b class="ga-l">${l}<span>${it.filter(has).length}/${it.length}</span></b><div class="${box}">${it.length ? it.map(chip).join('') : '<span class="small muted">—</span>'}</div></div>`; }).join('')}</div>`;
-  const tparts = u.ownTacGroup === 'abc' ? gaRows() : (byTrait
+  const tparts = u.ownTacGroup === 'abc' ? gaRowsOf(tacs, has, chip, box) : (byTrait
     ? [...TRAITS.map(t => section(`${t} 특성`, tacs.filter(e => e.trait === t), has, chip, box)), section('특성 미확인', tacs.filter(e => !TRAITS.includes(e.trait)), has, chip, box)]
     : [...TYPES.map(t => section(`${t} 전법`, tacs.filter(e => e.ttype === t), has, chip, box)), section('유형 미확인', tacs.filter(e => !TYPES.includes(e.ttype)), has, chip, box)]).join('');
   const segOf = (k, opts, def) => `<div class="seg">${opts.map(([v, l]) => `<button data-act="set" data-k="${k}" data-v="${v}" class="${(u[k] || def) === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
