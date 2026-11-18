@@ -838,6 +838,11 @@
      "owned": true,
      "stars": 3,
      "grade": 0
+    },
+    "주준": {
+     "owned": true,
+     "stars": 2,
+     "grade": 0
     }
    },
    "tactics": {
@@ -1023,6 +1028,6 @@
   ],
   "v": 2
  },
- "rev": 318,
- "savedAt": "2026-11-18T08:28:26.835Z"
+ "rev": 319,
+ "savedAt": "2026-11-18T08:28:52.104Z"
 }
