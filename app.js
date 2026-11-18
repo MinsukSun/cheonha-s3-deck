@@ -1169,11 +1169,7 @@ function viewOwn() {
     <select data-act-input="copyFrom"><option value="">다른 계정에서 복사…</option>${state.accounts.map((x, i) => i === state.active ? '' : `<option value="${i}">${esc(x.name)}의 ${u.ownTab === 'generals' ? '무장' : '전법'} 복사</option>`).join('')}</select>
     <button class="btn" data-act="clearOwn">${u.ownTab === 'generals' ? '무장' : '전법'} 전체 해제</button>
   </div>
-  <details class="hint"><summary>여러 개 한 번에 입력 (이름 붙여넣기)</summary>
-    <p class="small muted">쉼표·줄바꿈으로 구분해 이름을 붙여넣으면 보유로 표시합니다. ${u.ownTab === 'tactics' ? '전법 이름 뒤에 <b>*2</b>를 붙이면 영본까지 2개 보유로 저장합니다. 예: 침략방어*2, 기선제압' : '이름 뒤에 <b>:돌파</b> 또는 <b>:돌파:품</b>을 붙이면 함께 저장합니다. 예: 마초:3, 마운록:4:2, 강유'}</p>
-    <textarea rows="3" id="bulkIn"></textarea>
-    <div class="bar" style="margin-top:6px"><button class="btn primary" data-act="bulkApply">적용</button><span class="small muted" id="bulkMsg"></span></div>
-  </details>`;
+`;
   const sortBar = `<div class="bar"><span class="small muted">정렬</span><div class="seg">${[['name', '가나다순'], ['used', '사용 덱 수']].map(([v, l]) => `<button data-act="set" data-k="ownSort" data-v="${v}" class="${u.ownSort === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
   const sorter = u.ownSort === 'used' ? ((x, y) => y.used - x.used || byKoName(x, y)) : byKoName;
   const section = (label, items, isOwned, chip, box = 'chips') => items.length
@@ -1908,19 +1904,6 @@ async function sync() {
 // ───────────────────────── 이벤트 ─────────────────────────
 function cycleStars(g) { g.stars = ((g.stars || 0) + 1) % (MAX_STARS + 1); g.owned = true; }
 function cycleGrade(g) { g.grade = ((g.grade || 0) + 1) % (MAX_GRADE + 1); g.owned = true; }
-function bulkApply() {
-  const a = acct(), txt = $('#bulkIn').value, isT = state.ui.ownTab === 'tactics';
-  let okN = 0; const bad = [];
-  txt.split(/[,\n、]/).map(s => s.trim()).filter(Boolean).forEach(tok => {
-    const m = isT ? tok.match(/^(.*?)\s*(?:[*x×]\s*(\d))?$/) : tok.match(/^(.*?)\s*(?::\s*(\d))?\s*(?::\s*(\d))?$/);
-    const k = key(m[1]); const n = m[2] ? +m[2] : null;
-    if (isT) { if (!T.has(k)) reg(T, m[1]); a.tactics[k] = Math.min(2, n || 1); okN++; }
-    else { if (!G.has(k)) { bad.push(m[1]); return; } const p = m[3] ? +m[3] : null;
-      a.generals[k] = { owned: true, stars: n != null ? Math.min(MAX_STARS, n) : (a.generals[k]?.stars || 0), grade: p != null ? Math.min(MAX_GRADE, p) : (a.generals[k]?.grade || 0) }; okN++; }
-  });
-  persist(); render();
-  toast(`${okN}개 적용${bad.length ? ` · 못 찾음: ${bad.join(', ')}` : ''}`);
-}
 document.addEventListener('click', e => {
   const tabBtn = e.target.closest('#tabs button'); if (tabBtn) { state.ui.tab = tabBtn.dataset.tab; persist(); render(); window.scrollTo(0, 0); return; }
   const b = e.target.closest('[data-act]'); if (!b || b.tagName === 'SELECT' || (b.tagName === 'INPUT' && b.type !== 'checkbox')) return;
@@ -1961,7 +1944,6 @@ document.addEventListener('click', e => {
     }
     case 'addTac': { const v = $('#newTac').value.trim(); if (!v) return; const ent = reg(T, v); a.tactics[ent.key] = 1; ent.fixed = true; break; }
     case 'clearOwn': if (!confirm(`${a.name}의 ${state.ui.ownTab === 'generals' ? '무장' : '전법'} 보유 표시를 모두 해제할까요?`)) return; if (state.ui.ownTab === 'generals') a.generals = {}; else a.tactics = {}; break;
-    case 'bulkApply': return bulkApply();
     case 'toggleLineup': { const i = a.lineup.findIndex(id => resolveId(id) === b.dataset.id); if (i >= 0) a.lineup.splice(i, 1); else { a.lineup.push(b.dataset.id); toast(`${a.name} 편성에 추가 (${a.lineup.length}/${a.squads})`); } break; }
     case 'luDel': ai.lineup = ai.lineup.filter(x => x !== b.dataset.id); if (ai.locked) delete ai.locked[b.dataset.id]; break;
     case 'luLock': {
