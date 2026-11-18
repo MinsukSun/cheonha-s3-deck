@@ -833,6 +833,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "우길": {
+     "owned": true,
+     "stars": 3,
+     "grade": 0
     }
    },
    "tactics": {
@@ -1018,6 +1023,6 @@
   ],
   "v": 2
  },
- "rev": 317,
- "savedAt": "2026-11-18T08:28:21.903Z"
+ "rev": 318,
+ "savedAt": "2026-11-18T08:28:26.835Z"
 }
