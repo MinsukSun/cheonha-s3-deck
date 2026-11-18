@@ -858,6 +858,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "장녕": {
+     "owned": true,
+     "stars": 1,
+     "grade": 0
     }
    },
    "tactics": {
@@ -1043,6 +1048,6 @@
   ],
   "v": 2
  },
- "rev": 322,
- "savedAt": "2026-11-18T08:29:08.778Z"
+ "rev": 323,
+ "savedAt": "2026-11-18T08:29:24.962Z"
 }
