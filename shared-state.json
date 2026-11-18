@@ -808,6 +808,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "관우": {
+     "owned": true,
+     "stars": 0,
+     "grade": 0
     }
    },
    "tactics": {
@@ -993,6 +998,6 @@
   ],
   "v": 2
  },
- "rev": 307,
- "savedAt": "2026-11-18T08:27:02.416Z"
+ "rev": 308,
+ "savedAt": "2026-11-18T08:27:05.330Z"
 }
