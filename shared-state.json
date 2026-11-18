@@ -783,6 +783,11 @@
      "owned": true,
      "stars": 0,
      "grade": 0
+    },
+    "조순": {
+     "owned": true,
+     "stars": 2,
+     "grade": 0
     }
    },
    "tactics": {
@@ -968,6 +973,6 @@
   ],
   "v": 2
  },
- "rev": 302,
- "savedAt": "2026-11-18T08:26:10.794Z"
+ "rev": 303,
+ "savedAt": "2026-11-18T08:26:27.557Z"
 }
