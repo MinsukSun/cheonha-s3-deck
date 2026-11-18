@@ -37,6 +37,17 @@ const LS_STATE = 'tk3-state-v1', LS_CACHE = 'tk3-cache-v1';
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const key = s => String(s || '').replace(/\s+/g, '').toLowerCase();
+// 초성 검색: 검색어의 자음(ㄱ~ㅎ)은 그 자리 글자의 첫소리와 맞춰 봅니다. 예) 'ㅊㄱ'·'ㅅㅁ'·'칠ㄱ' → 칠군수몰
+const CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+const choOf = c => { const n = c.charCodeAt(0) - 0xac00; return n >= 0 && n < 11172 ? CHO[Math.floor(n / 588)] : c; };
+const CHO_LOOSE = { 'ㄱ': 'ㄲ', 'ㄷ': 'ㄸ', 'ㅂ': 'ㅃ', 'ㅅ': 'ㅆ', 'ㅈ': 'ㅉ' };
+const chMatch = (q, c) => q === c || (CHO.includes(q) && (choOf(c) === q || CHO_LOOSE[q] === choOf(c)));
+function hmatch(text, query) {
+  const q = [...key(query)], t = [...key(text)];
+  if (!q.length) return true;
+  for (let i = 0; i + q.length <= t.length; i++) { let ok = true; for (let j = 0; j < q.length; j++) if (!chMatch(q[j], t[i + j])) { ok = false; break; } if (ok) return true; }
+  return false;
+}
 const cell = (g, r, c) => (g[r] && g[r][c] != null ? String(g[r][c]).trim() : '');
 const uid = () => Math.random().toString(36).slice(2, 10);
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), 2400); }
@@ -1079,7 +1090,7 @@ function viewDecks() {
   const srcF = { main: d => d.kind === 'tier' || d.kind === 'variant' || d.kind === 'simple' || d.kind === 'custom' || d.kind === 'research', sheet: d => d.kind === 'tier' || d.kind === 'variant', research: d => d.kind === 'research', all: () => true, tier: d => d.kind === 'tier', variant: d => d.kind === 'variant', coexist: d => d.kind === 'coexist', community: d => d.kind === 'community', custom: d => d.kind === 'custom' || d.kind === 'simple' };
   const q = key(u.q);
   let list = DECKS.filter(srcF[u.src] || srcF.main).map(d => ({ d, c: check(d, a) }));
-  if (q) list = list.filter(({ d }) => key(d.name + (d.aka || []).join('') + d.group + d.slots.map(s => (s.gen ? s.gen.opts.map(gName).join('') : '') + s.tactics.map(t => t.opts.map(tName).join('')).join('')).join('')).includes(q));
+  if (q) list = list.filter(({ d }) => [d.name, ...(d.aka || []), d.group, ...d.slots.flatMap(s => [...(s.gen ? s.gen.opts.map(gName) : []), ...s.tactics.flatMap(t => t.opts.map(tName))])].some(x => hmatch(x, u.q)));
   const cnt = { ok: 0, stars: 0, tactic: 0, general: 0 }; list.forEach(x => cnt[x.c.status]++);
   if (u.status !== 'all') list = list.filter(x => x.c.status === u.status);
   list.sort((x, y) => STATUS_ORDER[x.c.status] - STATUS_ORDER[y.c.status] || (x.d.tier ?? 9) - (y.d.tier ?? 9));
@@ -1105,7 +1116,7 @@ function viewDecks() {
   <div class="hint small"><b>이것만 있으면 바로 열리는 덱</b> — 전법: ${top(unlockT)} &nbsp; 무장: ${top(unlockG)} &nbsp; 돌파·품: ${top(unlockS)}</div>
   ${cnt.stars ? `<div class="hint small">일부 덱은 시트 설명에 돌파·승품 조건(예: 마운록 4돌 2품 이상)이 있습니다. <b>보유 관리</b>의 <b>돌파</b>·<b>품</b> 모드로 입력해야 정확히 판정됩니다. 입력하지 않은 무장은 0돌 0품으로 봅니다. 인구가 적은 서버라면 <b>서버: 시골섭 완화</b>를 고르면 시트에 적힌 완화 조건(예: 시골섭 3돌 1품)으로 판정합니다.</div>` : ''}
   <div class="bar">
-    <input type="search" placeholder="덱·무장·전법 검색" value="${esc(u.q)}" data-model="q">
+    <input type="search" placeholder="덱·무장·전법 검색 (초성 가능)" value="${esc(u.q)}" data-model="q">
     ${serverSelect(a, state.active)} ${breakSelect(a, state.active)}
     <select data-model="src">
       ${[['main', '시트+추가 조사+내 덱'], ['sheet', '시트 (티어+변칙)'], ['research', '추가 조사'], ['tier', '티어덱'], ['variant', '변칙·계열덱'], ['coexist', '공존덱 구성'], ['community', '커뮤니티(세부 미확인)'], ['custom', '내 덱'], ['all', '전체']].map(([v, l]) => `<option value="${v}" ${u.src === v ? 'selected' : ''}>${l}</option>`).join('')}
@@ -1139,275 +1150,6 @@ function tierTable(list, a) {
 }
 
 // ───────────────────────── 렌더: 보유 관리 ─────────────────────────
-// ───────────────────────── 캡처 이미지로 보유 입력 (브라우저 OCR) ─────────────────────────
-// 게임 화면 캡처를 붙여넣으면(Ctrl+V) 한국어 OCR(Tesseract.js, 브라우저 안에서 실행)로 글자를 읽고,
-// 사이트에 있는 무장·전법 이름과 맞춰 본 뒤 확인 목록을 보여줍니다. 저장은 확인 후에만 합니다.
-const OCR_LIB = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
-const ocr = { status: 'idle', msg: '', img: '', items: [], raw: '' };
-let ocrWorker = null;
-function loadScript(src) {
-  return new Promise((res, rej) => { if (window.Tesseract) return res(); const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('OCR 라이브러리를 불러오지 못했습니다')); document.head.appendChild(s); });
-}
-function ocrSet(patch) { Object.assign(ocr, patch); if (state.ui.tab === 'own') render(); }
-async function ocrPrep(blob) {
-  const bmp = await createImageBitmap(blob);
-  const scale = Math.max(1, Math.min(3, 1800 / bmp.width));
-  const c = document.createElement('canvas'); c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
-  const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(bmp, 0, 0, c.width, c.height);
-  const im = x.getImageData(0, 0, c.width, c.height), d = im.data;
-  const color = new ImageData(new Uint8ClampedArray(d), c.width, c.height);   // 돌 그림 판별용 원본 색
-  let sum = 0; for (let i = 0; i < d.length; i += 4) sum += (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
-  const invert = sum / (d.length / 4) < 128;                 // 어두운 게임 화면 → 흰 글씨를 검은 글씨로
-  for (let i = 0; i < d.length; i += 4) {
-    let v = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
-    if (invert) v = 255 - v;
-    v = Math.max(0, Math.min(255, (v - 128) * 1.6 + 128));   // 대비 높이기
-    d[i] = d[i + 1] = d[i + 2] = v;
-  }
-  x.putImageData(im, 0, 0);
-  return { canvas: c, color };
-}
-const ocrNorm = s => String(s).toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
-function lev(a, b) {
-  const m = a.length, n = b.length, dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
-  for (let j = 1; j <= n; j++) dp[0][j] = j;
-  for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-  return dp[m][n];
-}
-// 글자 위치를 이용해 이름과 돌·품을 짝지읍니다.
-// - 이름: 같은 줄의 단어 1~3개를 이어 붙여 비교 (공백이 있는 '연의 원소', '침략 방어' 대응). 긴 이름부터 찾고,
-//   4글자 이상만 한 글자 틀림을 허용합니다(짧은 이름은 오인식이 많아 정확히 일치할 때만).
-// - 돌·품: '3돌', '4 돌', ']품'(1을 잘못 읽은 것) 같은 단어를 찾아, 이름의 오른쪽이나 바로 아래에 있는 가장 가까운 이름에 붙입니다.
-const OCR_DIGIT = { ']': 1, '|': 1, 'l': 1, 'I': 1, 'i': 1, '!': 1, 'O': 0, 'o': 0 };
-function ocrWords(data) {
-  const lines = [];
-  for (const b of data.blocks || []) for (const p of b.paragraphs || []) for (const l of p.lines || []) lines.push((l.words || []).filter(w => w.text.trim()));
-  if (!lines.length && data.words) lines.push(data.words);
-  return lines.filter(l => l.length);
-}
-// 무장 카드: 이름 바로 위 띠에 있는 빨강·주황 돌 아이콘 개수를 셉니다. (아이콘 위쪽은 빨강, 아래는 주황)
-function iconStars(img, nb, hMed) {
-  // OCR 글자 상자가 위쪽 아이콘까지 삼켜 커지는 경우가 있어, 화면의 보통 글자 높이와 글자 아래쪽 끝을 기준으로 잡습니다.
-  const h = Math.max(10, hMed || (nb.y1 - nb.y0)), cx = (nb.x0 + nb.x1) / 2, top = nb.y1 - h;
-  const x0 = Math.max(0, Math.round(cx - h * 3.6)), x1 = Math.min(img.width - 1, Math.round(cx + h * 3.0));
-  const y0 = Math.max(0, Math.round(top - h * 1.9)), y1 = Math.max(0, Math.round(top - h * 0.1));
-  if (y1 <= y0) return null;
-  const d = img.data, cols = [];
-  for (let x = x0; x <= x1; x++) {
-    let n = 0;
-    for (let y = y0; y <= y1; y++) {
-      const i = (y * img.width + x) * 4, r = d[i], g = d[i + 1], b = d[i + 2];
-      if (r > 150 && g < r * 0.66 && b < r * 0.5 && r - b > 90) n++;
-    }
-    cols.push(n >= 2);
-  }
-  // 붙어 있는 열 묶음 = 아이콘 하나 (3px 이하 틈은 같은 아이콘으로 봄), 너무 좁은 묶음은 잡티로 버림
-  const minW = Math.max(4, h * 0.3);
-  let count = 0, st = -1, last = -99;
-  const close = () => { if (st >= 0 && last - st + 1 >= minW) count++; };
-  cols.forEach((on, i) => { if (!on) return; if (st < 0) st = i; else if (i - last > 3) { close(); st = i; } last = i; });
-  close();
-  return Math.min(MAX_STARS, count);
-}
-// 전법 목록: 레벨 숫자 둘레 고리가 5칸(72°씩, 위에서 시계 방향)으로 나뉘어 금색으로 채워집니다. 채워진 칸 수 = 돌.
-function ringStars(img, nb, words, hMed) {
-  const h = Math.max(10, hMed || (nb.y1 - nb.y0)), cy0 = nb.y1 - h / 2;
-  // 이름 왼쪽 같은 줄의 숫자(레벨)를 고리 중심으로. 못 찾으면 이름 높이 기준 위치로 추정.
-  const num = words.filter(w => /\d/.test(w.text) && w.bbox.x1 < nb.x0 && nb.x0 - w.bbox.x1 < h * 6 && Math.abs((w.bbox.y0 + w.bbox.y1) / 2 - cy0) < h)
-    .sort((p, q) => q.bbox.x1 - p.bbox.x1)[0];
-  let cx = num ? (num.bbox.x0 + num.bbox.x1) / 2 : nb.x0 - h * 4.4, cy = num ? (num.bbox.y0 + num.bbox.y1) / 2 : cy0;
-  const d = img.data, W = img.width, H = img.height;
-  const at = (x, y) => { x = Math.round(x); y = Math.round(y); if (x < 0 || y < 0 || x >= W || y >= H) return null; const i = (y * W + x) * 4; return [d[i], d[i + 1], d[i + 2]]; };
-  const gold = p => p && p[0] > 160 && p[1] > 110 && p[2] < 110 && p[0] - p[2] > 70;
-  // 고리: 금색 칸이거나, 배경(약 45)보다 밝은 무채색 회색 칸(선택 안 된 줄은 75~90 정도로 어두움)
-  const ringish = p => p && (gold(p) || (Math.max(...p) - Math.min(...p) < 45 && Math.max(...p) > 65));
-  // 고리 반지름은 글자 높이의 약 0.88배(실측 25px/29px). 고리 픽셀 = 금색이거나, 같은 방향 바깥쪽(+7px)보다 확실히 밝은 픽셀.
-  // (선택된 줄은 배경 자체가 회색이라 '회색이면 고리'로 보면 안 됨)
-  const lum = p => p ? p[0] * 0.3 + p[1] * 0.59 + p[2] * 0.11 : 0;
-  const r0 = h * 0.88, band = 3;
-  const hit = (x, y, c, sn, r) => { const p = at(x + r * c, y + r * sn); if (!p) return false; if (gold(p)) return true; const q = at(x + (r + 7) * c, y + (r + 7) * sn); return lum(p) - lum(q) > 12; };
-  let best = { s: -1, cx, cy };
-  const span = num ? 8 : 14;
-  for (let dx = -span; dx <= span; dx += 1) for (let dy = -span; dy <= span; dy += 1) {
-    let sc = 0;
-    for (let a = 0; a < 360; a += 10) { const t = a * Math.PI / 180, c = Math.cos(t), sn = Math.sin(t); for (let r = r0 - band; r <= r0 + band; r += 1) if (hit(cx + dx, cy + dy, c, sn, r)) { sc++; break; } }
-    if (sc > best.s) best = { s: sc, cx: cx + dx, cy: cy + dy };
-  }
-  if (best.s < 24) return null;   // 36방향 중 2/3 이상에서 고리가 보여야 함
-  let filled = 0;
-  for (let k = 0; k < 5; k++) {
-    let g = 0, n = 0;
-    for (let a = 270 + k * 72 + 8; a < 270 + (k + 1) * 72 - 8; a += 4) {
-      const t = a * Math.PI / 180; n++;
-      for (let r = r0 - band - 1; r <= r0 + band + 1; r += 1) if (gold(at(best.cx + r * Math.cos(t), best.cy + r * Math.sin(t)))) { g++; break; }
-    }
-    if (g / n > 0.5) filled++;
-  }
-  return { v: filled, sure: !!num, cx: best.cx, cy: best.cy, s: best.s, cx0: cx, cy0: cy };   // sure: 레벨 숫자 옆 고리를 찾았음 (오른쪽 큰 카드 제목 같은 중복보다 우선)
-}
-function ocrMatch(data, color) {
-  const cands = [
-    ...[...G.values()].filter(e => (e.season || 0) <= MAX_SEASON && (e.used || e.roster)).map(e => ({ kind: 'g', key: e.key, name: e.name, k: ocrNorm(e.name) })),
-    ...[...T.values()].map(e => ({ kind: 't', key: e.key, name: e.name, k: ocrNorm(e.name) })),
-  ].filter(c => c.k.length >= 2).sort((x, y) => y.k.length - x.k.length);
-  const lines = ocrWords(data);
-  const box = ws => ({ x0: Math.min(...ws.map(w => w.bbox.x0)), y0: Math.min(...ws.map(w => w.bbox.y0)), x1: Math.max(...ws.map(w => w.bbox.x1)), y1: Math.max(...ws.map(w => w.bbox.y1)) });
-  const names = [], levels = [];
-  for (const ws of lines) {
-    const used = new Set();
-    // 돌·품 단어
-    ws.forEach((w, i) => {
-      let t = w.text.replace(/\s/g, ''), m = t.match(/([0-9\]|lIi!Oo])(돌|품)/);
-      if (!m && /^(돌|품)/.test(t) && i > 0) { const pv = ws[i - 1].text.trim().slice(-1); if (/[0-9\]|lIi!Oo]/.test(pv)) m = [null, pv, t[0]]; }
-      if (!m) return;
-      const v = /\d/.test(m[1]) ? +m[1] : OCR_DIGIT[m[1]];
-      if (v == null) return;
-      levels.push({ type: m[2] === '돌' ? 's' : 'p', v, b: w.bbox });
-    });
-    // 이름
-    for (const c of cands) {
-      const L = c.k.length;
-      outer: for (let n = 1; n <= 3; n++) for (let i = 0; i + n <= ws.length; i++) {
-        const idx = Array.from({ length: n }, (_, j) => i + j);
-        if (idx.some(j => used.has(j))) continue;
-        const span = ocrNorm(idx.map(j => ws[j].text).join(''));
-        const at = span.indexOf(c.k);
-        const fuzzy = at < 0 && L >= 4 && Math.abs(span.length - L) <= 1 && lev(span, c.k) <= 1;
-        if (at < 0 && !fuzzy) continue;
-        if (at >= 0 && span.length > L + 3 && n > 1) continue;      // 너무 긴 묶음 안의 우연한 일치는 제외
-        idx.forEach(j => used.add(j));
-        names.push({ kind: c.kind, key: c.key, name: c.name, exact: !fuzzy, line: idx.map(j => ws[j].text).join(' '), b: box(idx.map(j => ws[j])) });
-        break outer;
-      }
-    }
-  }
-  // 돌·품을 가장 가까운 무장 이름에 붙이기 (오른쪽 같은 줄 또는 아래 3줄 이내)
-  const gens = names.filter(n => n.kind === 'g');
-  for (const lv of levels) {
-    let best = null, bd = Infinity;
-    const cx = (lv.b.x0 + lv.b.x1) / 2, cy = (lv.b.y0 + lv.b.y1) / 2;
-    for (const n of gens) {
-      const w = n.b.x1 - n.b.x0, h = Math.max(8, n.b.y1 - n.b.y0);
-      const right = cy >= n.b.y0 - h * 0.5 && cy <= n.b.y1 + h * 0.5 && cx >= n.b.x0 && cx <= n.b.x1 + w * 2 + 40;
-      const below = cy > n.b.y1 - h * 0.3 && cy <= n.b.y1 + h * 3.5 && cx >= n.b.x0 - w * 0.6 - 20 && cx <= n.b.x1 + w * 0.6 + 20;
-      if (!right && !below) continue;
-      const d = Math.hypot(cx - (n.b.x0 + n.b.x1) / 2, cy - (n.b.y0 + n.b.y1) / 2);
-      if (d < bd) { bd = d; best = n; }
-    }
-    if (best) best[lv.type === 's' ? 'stars' : 'grade'] = Math.min(lv.type === 's' ? MAX_STARS : MAX_GRADE, lv.v);
-  }
-  // 화면 종류: 전법이 더 많이 잡히면 전법 화면(전법 아래 소유 무장 이름은 무시), 아니면 무장 화면(우연히 잡힌 전법은 무시)
-  const nT = names.filter(n => n.kind === 't').length, nG = names.filter(n => n.kind === 'g').length;
-  const screen = nT > nG ? 't' : 'g';
-  let pool = names.filter(n => n.kind === screen);
-  ocrMatch.last = { pool, words: lines.flat().map(w => ({ t: w.text, b: w.bbox })) };
-  // 그림으로 돌 읽기 (글자로 '3돌'을 못 읽었을 때)
-  if (color) {
-    const allWords = lines.flat();
-    const hs = pool.map(n => n.b.y1 - n.b.y0).sort((x, y) => x - y), hMed = hs.length ? hs[Math.floor((hs.length - 1) / 4)] : 0;   // 상자는 커지기만 하므로 아래쪽 4분위 높이를 보통 글자 높이로 봄
-    for (const n of pool) {
-      if (n.kind === 'g' && n.stars == null) { const v = iconStars(color, n.b, hMed); if (v != null) { n.stars = v; n.byImg = true; } }
-      if (n.kind === 't') {
-        const r = ringStars(color, n.b, allWords, hMed);
-        if (r && r.sure) { n.stars = r.v; n.byImg = 2; }
-        else {
-          // 고리가 없으면 오른쪽 큰 전법 카드일 수 있음: 카드 제목 위 빨간 돌 아이콘을 셈
-          const v = iconStars(color, n.b, hMed);
-          if (v) { n.stars = v; n.byImg = 1; } else if (r) { n.stars = r.v; n.byImg = 1; }
-        }
-      }
-    }
-  }
-  const found = new Map();
-  const rank = n => (+n.byImg || 0) * 2 + (n.exact ? 1 : 0);   // 그림으로 확실히 읽은 것 > 그림으로 읽은 것 > 글자만
-  for (const n of pool) { const p = found.get(n.key); if (!p || rank(n) > rank(p)) found.set(n.key, n); }
-  const a = acct();
-  return [...found.values()].map(it => {
-    if (it.kind === 'g') {
-      // 같은 이름의 SP·연의 무장이 있으면 고를 수 있게 (OCR이 'SP', '연의'를 빠뜨리는 경우가 많음)
-      const base = it.key.replace(/^(sp|연의)/, '');
-      const alts = [...G.values()].filter(e => (e.season || 0) <= MAX_SEASON && (e.key === base || e.key === 'sp' + base || e.key === '연의' + base)).map(e => e.key);
-      it.alts = alts.length > 1 ? alts.sort((x, y) => x.length - y.length) : null;
-    }
-    if (it.kind === 'g') { const g = a.generals[it.key] || {}; return { kind: 'g', alts: it.alts, key: it.key, name: it.name, exact: it.exact, line: it.line, checked: true, read: [it.stars != null ? `${it.stars}돌` : '', it.grade != null ? `${it.grade}품` : ''].filter(Boolean).join(' '), cur: g.owned ? reqText({ s: g.stars || 0, p: g.grade || 0 }) || '0돌' : '', stars: it.stars ?? (g.stars || 0), grade: it.grade ?? (g.grade || 0) }; }
-    const n = tCount(a, it.key), ts = (a.tstars || {})[it.key];
-    return { kind: 't', key: it.key, name: it.name, exact: it.exact, line: it.line, checked: true, cur: n ? `${n}개` : '', count: Math.max(1, n) };
-  }).sort((x, y) => (x.kind === y.kind ? byKoName(x, y) : x.kind === 'g' ? -1 : 1));
-}
-async function ocrRun(blob) {
-  if (!blob || !/^image\//.test(blob.type)) return toast('이미지가 아닙니다');
-  ocrSet({ status: 'loading', msg: '이미지 준비 중', img: URL.createObjectURL(blob), items: [], raw: '' });
-  try {
-    const { canvas, color } = await ocrPrep(blob);
-    if (!ocrWorker) {
-      ocrSet({ msg: '글자 인식 도구 불러오는 중 (처음 한 번, 약 2MB)' });
-      await loadScript(OCR_LIB);
-      ocrWorker = await window.Tesseract.createWorker('kor', 1, {
-        logger: m => { if (m.status === 'recognizing text') { const el = document.getElementById('ocrMsg'); if (el) el.textContent = `글자 읽는 중 ${Math.round(m.progress * 100)}%`; } },
-      });
-    }
-    ocrSet({ status: 'reading', msg: '글자 읽는 중' });
-    const { data } = await ocrWorker.recognize(canvas, {}, { text: true, blocks: true });
-    const items = ocrMatch(data, color);
-    ocrSet({ status: 'done', raw: String(data.text || '').trim(), items, msg: items.length ? `${items.length}개를 찾았습니다. 맞는지 확인하고 저장하세요.` : '아는 무장·전법 이름을 찾지 못했습니다. 이름이 크게 보이도록 다시 캡처해 보세요.' });
-  } catch (e) { ocrSet({ status: 'error', msg: '인식 실패: ' + e.message }); }
-}
-function ocrPanel() {
-  const busy = ocr.status === 'loading' || ocr.status === 'reading';
-  const g = ocr.items.filter(i => i.kind === 'g'), t = ocr.items.filter(i => i.kind === 't');
-  const opt = (n, v, unit) => range0(n).map(x => `<option value="${x}" ${x === v ? 'selected' : ''}>${x}${unit}</option>`).join('');
-  const row = (it, i) => `<tr class="${it.checked ? '' : 'off'}">
-    <td><input type="checkbox" data-ocr="checked" data-i="${i}" ${it.checked ? 'checked' : ''}></td>
-    <td>${it.alts ? `<select data-ocr="key" data-i="${i}" title="SP·연의 무장인지 확인하세요">${it.alts.map(k => `<option value="${esc(k)}" ${k === it.key ? 'selected' : ''}>${esc(gName(k))}</option>`).join('')}</select>` : `<b>${esc(it.name)}</b>`}${it.exact ? '' : ' <span class="tag" title="글자 하나가 다르게 읽혔지만 가장 가까운 이름">비슷</span>'}${it.read ? ` <span class="tag" title="캡처에서 읽은 값">읽음 ${esc(it.read)}</span>` : ''}${it.cur ? ` <span class="small muted">현재 ${esc(it.cur)}</span>` : ' <span class="small have">새로 추가</span>'}</td>
-    <td>${it.kind === 'g'
-      ? `<select data-ocr="stars" data-i="${i}">${opt(MAX_STARS, it.stars, '돌')}</select> <select data-ocr="grade" data-i="${i}">${opt(MAX_GRADE, it.grade, '품')}</select>`
-      : `<select data-ocr="count" data-i="${i}"><option value="1" ${it.count === 1 ? 'selected' : ''}>1개</option><option value="2" ${it.count === 2 ? 'selected' : ''}>2개(영본)</option></select>`}</td>
-    <td class="small muted ocr-line" title="${esc(it.line)}">${esc(it.line)}</td></tr>`;
-  const idx = it => ocr.items.indexOf(it);
-  return `<div class="hint ocr">
-    <div class="bar" style="margin:0">
-      <b>캡처로 입력</b>
-      <span class="small muted">게임 화면을 캡처(Win+Shift+S)한 뒤 이 화면에서 <b>Ctrl+V</b> · 이미지 끌어놓기 · </span>
-      <label class="btn small">파일 고르기<input type="file" accept="image/*" id="ocrFile" hidden></label>
-      ${ocr.status !== 'idle' && !busy ? '<button class="btn small" data-act="ocrClear">닫기</button>' : ''}
-    </div>
-    ${ocr.status !== 'idle' ? `<div class="ocr-body">
-      ${ocr.img ? `<img src="${ocr.img}" alt="붙여넣은 캡처" class="ocr-img">` : ''}
-      <div class="ocr-res">
-        <p class="small ${ocr.status === 'error' ? 'miss' : 'muted'}" id="ocrMsg">${esc(ocr.msg)}</p>
-        ${ocr.items.length ? `<table class="ocr-t">
-          ${g.length ? `<tr><th colspan="4">무장 (${esc(acct().name)})</th></tr>${g.map(it => row(it, idx(it))).join('')}` : ''}
-          ${t.length ? `<tr><th colspan="4">전법 (${esc(acct().name)})</th></tr>${t.map(it => row(it, idx(it))).join('')}` : ''}
-        </table>
-        <div class="bar" style="margin-top:8px"><button class="btn primary" data-act="ocrApply">선택한 ${ocr.items.filter(i => i.checked).length}개 보유로 저장</button><span class="small muted">체크한 것만 저장하고, 목록에 없는 기존 보유는 그대로 둡니다.</span></div>` : ''}
-        ${ocr.raw ? `<details class="small"><summary>읽은 글자 전체 보기</summary><pre class="ocr-raw">${esc(ocr.raw)}</pre></details>` : ''}
-      </div></div>` : ''}
-  </div>`;
-}
-function ocrApply() {
-  const a = acct(); let n = 0;
-  for (const it of ocr.items) {
-    if (!it.checked) continue;
-    if (it.kind === 'g') a.generals[it.key] = { owned: true, stars: +it.stars || 0, grade: +it.grade || 0 };
-    else a.tactics[it.key] = Math.max(1, Math.min(2, +it.count || 1));
-    n++;
-  }
-  ocr.status = 'idle'; ocr.items = []; ocr.img = ''; ocr.raw = '';
-  persist(); render(); toast(`${a.name}: ${n}개 보유로 저장했습니다`);
-}
-document.addEventListener('paste', e => {
-  if (state.ui.tab !== 'own') return;
-  const f = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
-  if (!f) return;                                   // 글자 붙여넣기는 그대로 둠
-  e.preventDefault(); ocrRun(f.getAsFile());
-});
-document.addEventListener('dragover', e => { if (state.ui.tab === 'own' && [...(e.dataTransfer?.items || [])].some(i => i.kind === 'file')) e.preventDefault(); });
-document.addEventListener('drop', e => {
-  if (state.ui.tab !== 'own') return;
-  const f = [...(e.dataTransfer?.files || [])].find(x => x.type.startsWith('image/'));
-  if (f) { e.preventDefault(); ocrRun(f); }
-});
-
 // 가나다순: 공백 무시, 'SP 제갈량'은 '제갈량' 바로 뒤에 오도록 SP를 빼고 비교
 const koSortKey = n => String(n).replace(/^sp\s*/i, '').replace(/\s+/g, '') + (/^sp/i.test(n) ? '\uffff' : '');
 const byKoName = (x, y) => koSortKey(x.name).localeCompare(koSortKey(y.name), 'ko');
@@ -1420,14 +1162,13 @@ function viewOwn() {
     <div class="seg">${[['generals', '무장'], ['tactics', '전법']].map(([v, l]) => `<button data-act="set" data-k="ownTab" data-v="${v}" class="${u.ownTab === v ? 'on' : ''}">${l}</button>`).join('')}</div>
     ${u.ownTab === 'generals' ? `<div class="seg">${[['stars', '돌파'], ['grade', '품']].map(([v, l]) => `<button data-act="set" data-k="ownMode" data-v="${v}" class="${(u.ownMode === 'grade' ? 'grade' : 'stars') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`
       : `<div class="seg">${[['own', '보유'], ['copies', '영본 개수']].map(([v, l]) => `<button data-act="set" data-k="ownTacMode" data-v="${v}" class="${(u.ownTacMode === 'copies' ? 'copies' : 'own') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`}
-    <input type="search" placeholder="이름 검색" value="${esc(u.ownQ)}" data-model="ownQ">
+    <input type="search" placeholder="이름 검색 (초성 가능: ㅊㄱ)" value="${esc(u.ownQ)}" data-model="ownQ">
     <label class="small"><input type="checkbox" data-act="toggleUsedOnly" ${u.ownUsedOnlyV2 ? 'checked' : ''}> 덱에 쓰이는 것만</label>
   </div>
   <div class="bar">
     <select data-act-input="copyFrom"><option value="">다른 계정에서 복사…</option>${state.accounts.map((x, i) => i === state.active ? '' : `<option value="${i}">${esc(x.name)}의 ${u.ownTab === 'generals' ? '무장' : '전법'} 복사</option>`).join('')}</select>
     <button class="btn" data-act="clearOwn">${u.ownTab === 'generals' ? '무장' : '전법'} 전체 해제</button>
   </div>
-  ${ocrPanel()}
   <details class="hint"><summary>여러 개 한 번에 입력 (이름 붙여넣기)</summary>
     <p class="small muted">쉼표·줄바꿈으로 구분해 이름을 붙여넣으면 보유로 표시합니다. ${u.ownTab === 'tactics' ? '전법 이름 뒤에 <b>*2</b>를 붙이면 영본까지 2개 보유로 저장합니다. 예: 침략방어*2, 기선제압' : '이름 뒤에 <b>:돌파</b> 또는 <b>:돌파:품</b>을 붙이면 함께 저장합니다. 예: 마초:3, 마운록:4:2, 강유'}</p>
     <textarea rows="3" id="bulkIn"></textarea>
@@ -1440,7 +1181,7 @@ function viewOwn() {
   if (u.ownTab === 'generals') {
     let gens = [...G.values()].filter(e => (e.season || 0) <= MAX_SEASON);
     if (u.ownUsedOnlyV2) gens = gens.filter(e => e.used > 0 || ownsG(a, e.key));
-    if (q) gens = gens.filter(e => e.key.includes(q));
+    if (q) gens = gens.filter(e => hmatch(e.name, u.ownQ) || hmatch(e.key, u.ownQ));
     const chip = e => {
       const g = a.generals[e.key] || {};
       const tip = [e.season ? `시즌${e.season}` : '', e.skill, e.type, e.cat].filter(Boolean).join(' · ') + (e.desc ? '\n' + e.desc : '');
@@ -1455,7 +1196,7 @@ function viewOwn() {
   }
   let tacs = [...T.values()];
   if (u.ownUsedOnlyV2) tacs = tacs.filter(e => e.used > 0 || tCount(a, e.key));
-  if (q) tacs = tacs.filter(e => e.key.includes(q));
+  if (q) tacs = tacs.filter(e => hmatch(e.name, u.ownQ) || [...(e.aliases || [])].some(x => hmatch(x, u.ownQ)));
   const chip = e => {
     const n = tCount(a, e.key);
     const tip = tacTip(e.key) + (e.aliases ? `\n다른 자료 표기: ${[...e.aliases].join(', ')}` : '');
@@ -1468,11 +1209,16 @@ function viewOwn() {
   if (u.ownTtype && u.ownTtype !== 'all') tacs = tacs.filter(e => e.ttype === u.ownTtype);
   const box = u.ownTacView === 'list' ? 'tlist' : 'chips', has = e => tCount(a, e.key) > 0;
   const byTrait = u.ownTacGroup === 'trait';
-  const tparts = (byTrait
+  const GA = ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+  const gaOf = n => { const c = choOf(String(n).replace(/^sp\s*/i, '').trim()[0] || ''); const f = { 'ㄲ': 'ㄱ', 'ㄸ': 'ㄷ', 'ㅃ': 'ㅂ', 'ㅆ': 'ㅅ', 'ㅉ': 'ㅈ' }[c] || c; return GA.includes(f) ? f : '기타'; };
+  const gaRows = () => `<div class="ga-rows">${[...GA, '기타'].map(l => { const it = tacs.filter(e => gaOf(e.name) === l).sort((x, y) => koSortKey(x.name).localeCompare(koSortKey(y.name), 'ko'));
+    if (l === '기타' && !it.length) return '';
+    return `<div class="ga-row ${it.length ? '' : 'none'}"><b class="ga-l">${l}<span>${it.filter(has).length}/${it.length}</span></b><div class="${box}">${it.length ? it.map(chip).join('') : '<span class="small muted">—</span>'}</div></div>`; }).join('')}</div>`;
+  const tparts = u.ownTacGroup === 'abc' ? gaRows() : (byTrait
     ? [...TRAITS.map(t => section(`${t} 특성`, tacs.filter(e => e.trait === t), has, chip, box)), section('특성 미확인', tacs.filter(e => !TRAITS.includes(e.trait)), has, chip, box)]
     : [...TYPES.map(t => section(`${t} 전법`, tacs.filter(e => e.ttype === t), has, chip, box)), section('유형 미확인', tacs.filter(e => !TYPES.includes(e.ttype)), has, chip, box)]).join('');
   const segOf = (k, opts, def) => `<div class="seg">${opts.map(([v, l]) => `<button data-act="set" data-k="${k}" data-v="${v}" class="${(u[k] || def) === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
-  const tacBar = `<div class="bar"><span class="small muted">묶기</span>${segOf('ownTacGroup', [['type', '유형별'], ['trait', '특성별']], 'type')}
+  const tacBar = `<div class="bar"><span class="small muted">묶기</span>${segOf('ownTacGroup', [['type', '유형별'], ['trait', '특성별'], ['abc', '가나다 행']], 'type')}
     <span class="small muted">보기</span>${segOf('ownTacView', [['chips', '칩'], ['list', '설명 목록']], 'chips')}</div>
     <div class="bar"><span class="small muted">유형</span>${segOf('ownTtype', [['all', '전체'], ...TYPES.map(t => [t, t])], 'all')}
     <span class="small muted">특성</span>${segOf('ownTrait', [['all', '전체'], ...TRAITS.map(t => [t, t])], 'all')}</div>`;
@@ -2053,12 +1799,12 @@ function viewCodex() {
     const f = (k, fn) => { if (u[k] && u[k] !== 'all') gs = gs.filter(g => fn(g, u[k])); };
     f('cxSeason', (g, v) => String(g.season) === v); f('cxFac', (g, v) => g.fac === v); f('cxPos', (g, v) => (g.pos || '미확인') === v);
     f('cxTroop', (g, v) => g.troop === v); f('cxUType', (g, v) => g.unique && g.unique.type === v); f('cxOwn', (g, v) => (v === 'own') === ownsG(a, g.key));
-    if (q) gs = gs.filter(g => key(g.name).includes(q) || key(g.unique && g.unique.name).includes(q));
+    if (q) gs = gs.filter(g => hmatch(g.name, u.cxQ) || hmatch(g.unique && g.unique.name, u.cxQ));
     const sk = u.cxSort || 'default';
     if (CX_STATS.includes(sk)) gs.sort((x, y) => ((y.stats || {})[sk]?.lv50 || 0) - ((x.stats || {})[sk]?.lv50 || 0));
     else if (sk === 'name') gs.sort((x, y) => x.name.localeCompare(y.name, 'ko'));
     else if (sk === 'used') gs.sort((x, y) => ((G.get(y.key) || {}).used || 0) - ((G.get(x.key) || {}).used || 0));
-    const filters = `<div class="bar"><input type="search" placeholder="무장·고유 전법 검색" value="${esc(u.cxQ || '')}" data-model="cxQ">
+    const filters = `<div class="bar"><input type="search" placeholder="무장·고유 전법 검색 (초성 가능)" value="${esc(u.cxQ || '')}" data-model="cxQ">
       <span class="fl"><span class="small muted">정렬</span>${seg('cxSort', [['default', '기본'], ['name', '이름'], ['used', '덱 수'], ...CX_STATS.map(s => [s, s])], 'default')}</span>
       <span class="fl"><span class="small muted">보기</span>${seg('cxView', [['cards', '카드'], ['table', '표']], 'cards')}</span></div>
       <div class="bar"><span class="fl"><span class="small muted">시즌</span>${seg('cxSeason', [['all', '전체'], ['1', 'S1'], ['2', 'S2'], ['3', 'S3']], 'all')}</span>
@@ -2086,11 +1832,11 @@ function viewCodex() {
     if (u.cxTType && u.cxTType !== 'all') ts = ts.filter(t => t.type === u.cxTType);
     if (u.cxTTrait && u.cxTTrait !== 'all') ts = ts.filter(t => t.trait === u.cxTTrait);
     if (u.cxTSeason && u.cxTSeason !== 'all') ts = ts.filter(t => (t.season || '?') === u.cxTSeason);
-    if (q) ts = ts.filter(t => key(t.name).includes(q) || key(t.desc).includes(q) || key((t.tags || []).join('')).includes(q));
+    if (q) ts = ts.filter(t => hmatch(t.name, u.cxQ) || key(t.desc).includes(q) || (t.tags || []).some(x => hmatch(x, u.cxQ)));
     const sk = u.cxTSort || 'type', TY = ['지휘', '액티브', '패시브', '추격'];
     ts.sort(sk === 'rate' ? (x, y) => (y.rate || 0) - (x.rate || 0) : sk === 'used' ? (x, y) => ((T.get(y.key) || {}).used || 0) - ((T.get(x.key) || {}).used || 0)
       : sk === 'name' ? (x, y) => x.name.localeCompare(y.name, 'ko') : (x, y) => TY.indexOf(x.type) - TY.indexOf(y.type) || x.name.localeCompare(y.name, 'ko'));
-    body = `<div class="bar"><input type="search" placeholder="전법 이름·설명·태그 검색" value="${esc(u.cxQ || '')}" data-model="cxQ">
+    body = `<div class="bar"><input type="search" placeholder="전법 이름·설명·태그 검색 (초성 가능)" value="${esc(u.cxQ || '')}" data-model="cxQ">
       <span class="fl"><span class="small muted">정렬</span>${seg('cxTSort', [['type', '유형'], ['name', '이름'], ['rate', '발동률'], ['used', '덱 수']], 'type')}</span></div>
       <div class="bar"><span class="fl"><span class="small muted">유형</span>${seg('cxTType', [['all', '전체'], ...TY.map(t => [t, t])], 'all')}</span>
       <span class="fl"><span class="small muted">특성</span>${seg('cxTTrait', [['all', '전체'], ...TRAITS.map(t => [t, t])], 'all')}</span>
@@ -2254,8 +2000,6 @@ document.addEventListener('click', e => {
     case 'delTab': state.sheet.tabs.splice(+b.dataset.i, 1); break;
     case 'resetSheet': state.sheet = JSON.parse(JSON.stringify(DEFAULT_SHEET)); break;
     case 'sync': return sync();
-    case 'ocrApply': return ocrApply();
-    case 'ocrClear': Object.assign(ocr, { status: 'idle', items: [], img: '', raw: '', msg: '' }); break;
     case 'cloudSave': {
       Cloud.setCfg({ repo: $('#cRepo').value.trim(), branch: $('#cBranch').value.trim() || 'data', path: $('#cPath').value.trim() || 'shared-state.json',
         token: $('#cToken').value.trim(), enabled: $('#cOn').checked });
@@ -2308,18 +2052,6 @@ document.addEventListener('change', e => {
     persist(); render(); return;
   }
   if (t.dataset.tabcfg != null) { state.sheet.tabs[+t.dataset.tabcfg][t.dataset.f] = t.value; persist(); return; }
-  if (t.dataset.ocr) {
-    const it = ocr.items[+t.dataset.i]; if (!it) return;
-    if (t.dataset.ocr === 'key') {
-      const g = acct().generals[t.value] || {};
-      Object.assign(it, { key: t.value, name: gName(t.value), cur: g.owned ? reqText({ s: g.stars || 0, p: g.grade || 0 }) || '0돌' : '' });
-      render(); return;
-    }
-    it[t.dataset.ocr] = t.type === 'checkbox' ? t.checked : +t.value;
-    if (t.type === 'checkbox') render();
-    return;
-  }
-  if (t.id === 'ocrFile' && t.files[0]) { ocrRun(t.files[0]); t.value = ''; return; }
   if (t.id === 'importFile' && t.files[0]) {
     t.files[0].text().then(txt => {
       try { const d = JSON.parse(txt); if (!d.state || !Array.isArray(d.state.accounts)) throw new Error('형식 오류'); state = d.state; state.ui = Object.assign({}, state.ui); normalizeAccounts(); clampAccounts(); persist(); buildData(); render(); toast('백업을 불러왔습니다'); }
@@ -2416,5 +2148,5 @@ function showGate(onOk) {
 // ───────────────────────── 시작 ─────────────────────────
 function start() { start._done = true; buildData(); render(); Cloud.paintStatus(); Cloud.pull(); }
 if (isAuthed()) start(); else showGate(start);
-window.__tk3 = { get DECKS() { return DECKS; }, get COEXIST() { return COEXIST; }, G, T, check, solve, planLineup, realizations, subVariant, fits, Cloud, iconStars, ringStars, ocrMatch, state: () => state };
+window.__tk3 = { get DECKS() { return DECKS; }, get COEXIST() { return COEXIST; }, G, T, check, solve, planLineup, realizations, subVariant, fits, Cloud, state: () => state };
 })();
